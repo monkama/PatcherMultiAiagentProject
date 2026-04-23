@@ -8,7 +8,7 @@ _BASE_DIR = Path(__file__).parent.parent
 
 
 @tool
-def save_vulnerability_result(result: dict, output_path: str = "data/collected_vulns.json") -> str:
+def save_vulnerability_result(result: dict, output_path: str = "data/focused_selected_raw_cves.json") -> str:
     """
     Save normalized vulnerability result as JSON.
     """

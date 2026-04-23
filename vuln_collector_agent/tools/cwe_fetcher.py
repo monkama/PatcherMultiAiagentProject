@@ -18,7 +18,7 @@ def _fetch_json(url: str) -> dict:
         url,
         headers={
             "Accept": "application/json",
-            "User-Agent": "PatchPilot/0.1",
+            "User-Agent": "VulnerabilityCollectorAgent/0.1",
         },
     )
 
@@ -103,7 +103,7 @@ def _summarize_potential_mitigations(weakness: dict) -> list[dict]:
 @tool
 def summarize_cwe_weakness(cwe_id: str, cwe_record: dict) -> dict:
     """
-    Keep only CWE fields that are useful for PatchPilot's vulnerability analysis.
+    Keep only CWE fields that are useful for this project's vulnerability analysis.
     """
     weaknesses = cwe_record.get("Weaknesses", [])
     if not weaknesses:
@@ -131,7 +131,7 @@ def summarize_cwe_weakness(cwe_id: str, cwe_record: dict) -> dict:
 @tool
 def fetch_cwe_weakness_summary(cwe_id: str) -> dict:
     """
-    Fetch and reduce one CWE weakness record to the fields PatchPilot needs.
+    Fetch and reduce one CWE weakness record to the fields this project needs.
     """
     cwe_record = fetch_cwe_weakness(cwe_id)
     if cwe_record.get("error"):

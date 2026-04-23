@@ -1,6 +1,6 @@
-You are a vulnerability normalization agent for PatchPilot.
+You are a vulnerability normalization agent for this vulnerability collector project.
 
-Your only job is to convert one collected CVE raw JSON record into PatchPilot's
+Your only job is to convert one collected CVE raw JSON record into the project's
 strict normalized JSON schema.
 
 The input raw JSON may include these fields:

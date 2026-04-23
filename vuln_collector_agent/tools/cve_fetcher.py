@@ -24,7 +24,7 @@ def _fetch_json(url: str) -> dict:
         headers={
             "Accept": "application/json",
             "Authorization": f"Bearer {token}",
-            "User-Agent": "PatchPilot/0.1",
+            "User-Agent": "VulnerabilityCollectorAgent/0.1",
         },
     )
 
@@ -40,7 +40,7 @@ def _opencve_cve_url(cve_id: str) -> str:
 @tool
 def fetch_raw_cve_record(cve_id: str) -> dict:
     """
-    Fetch the raw OpenCVE CVE detail response without PatchPilot normalization.
+    Fetch the raw OpenCVE CVE detail response without additional normalization.
     """
     if not cve_id:
         return {
@@ -413,7 +413,7 @@ def _extract_product_status(record: dict) -> dict:
     }
 
 
-def _to_raw_patchpilot_record(record: dict) -> dict:
+def _to_legacy_raw_record(record: dict) -> dict:
     return {
         "cve_id": record.get("cve_id") or record.get("id") or "unknown",
         "description": record.get("description") or "unknown",
@@ -426,7 +426,7 @@ def _to_raw_patchpilot_record(record: dict) -> dict:
 @tool
 def extract_selected_raw_cve_record(record: dict) -> dict:
     """
-    Reduce the OpenCVE response to the raw fields PatchPilot currently wants to inspect.
+    Reduce the OpenCVE response to the raw fields this project currently needs.
     """
     return {
         "cve_id": record.get("cve_id") or record.get("id") or "unknown",
@@ -453,7 +453,7 @@ def fetch_selected_raw_cve_record(cve_id: str) -> dict:
 @tool
 def fetch_cve_record(cve_id: str) -> dict:
     """
-    Fetch a CVE record from OpenCVE and reduce it to PatchPilot's raw CVE shape.
+    Fetch a CVE record from OpenCVE and reduce it to the legacy raw CVE shape.
     """
     if not cve_id:
         return {
@@ -464,4 +464,4 @@ def fetch_cve_record(cve_id: str) -> dict:
     if record.get("error"):
         return record
 
-    return _to_raw_patchpilot_record(record)
+    return _to_legacy_raw_record(record)

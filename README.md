@@ -1,4 +1,4 @@
-# Metaton Vulnerability Collector Agent
+# Vulnerability Collector Agent
 
 이 프로젝트는 소수의 고정된 CVE를 수집하고, 이를 에이전트별 JSON payload 형태로 가공하는 작은 취약점 수집 파이프라인입니다.
 
