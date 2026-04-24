@@ -1,16 +1,59 @@
-# Megaton
+# PacherAgents
 
-Megaton은 여러 AI 에이전트가 협업해 취약점 데이터를 수집하고, 이후에는 실제 인프라 코드까지 점검 대상으로 확장할 수 있도록 구성한 저장소입니다.
+PacherAgents는 여러 AI 에이전트가 협업해 실시간으로 취약점 데이터를 수집하고, 위험도를 평가하며, 패치시 대상 인프라의 운영 및 영향도까지 확인하여 안전하게 취약점을 보완해주는 ai 기반 보안 솔루션 시스템입니다.
 
 현재는 취약점 수집용 에이전트 하나가 먼저 들어와 있고, 저장소 구조는 이후 에이전트 추가와 점검 대상 인프라 코드 적재를 염두에 두고 정리되어 있습니다.
+
+전체 AI agent 구조도는 `image/MegatonStructure.drawio` 파일에 정리되어 있습니다.
+
+## 전체 구조도
+
+GitHub README에서는 `.drawio` 원본이 이미지처럼 바로 렌더링되지 않기 때문에, 아래에 같은 내용을 빠르게 파악할 수 있는 Mermaid 요약 구조도를 함께 둡니다.
+
+```mermaid
+flowchart LR
+  A[자산 수집 agent]
+  A1[기본 자산 정보 수집]
+  A2[위험도 평가용 추가 자산 정보 수집]
+  A3[의존성 및 운영 영향 관련 추가 정보 수집]
+  V[취약점 수집 agent]
+  V1[소프트웨어 정보에 해당하는 취약점 정보 수집]
+  R[위험도 평가 agent]
+  R1[1단계: risk_assessment_payloads.json + 기본 자산 정보 전체 기반 평가]
+  R2[2단계: 추가 자산 정보 요청 후 위험도 판단]
+  R3[3단계: 위험도 정보를 JSON으로 정규화]
+  O[의존성 및 운영 영향 평가 후 조치 agent]
+  O1[operational_impact_payloads.json 기반 의존성 확인]
+  O2[버전 업그레이드 및 보완 조치 적용 후 정상/비정상 신호 반환]
+
+  A --> A1
+  A --> A2
+  A --> A3
+  V --> V1
+  R --> R1
+  R --> R2
+  R --> R3
+  O --> O1
+  O --> O2
+
+  A1 -->|사용 중인 소프트웨어 정보| V1
+  V1 -->|risk_assessment_payloads.json| R1
+  A1 -->|기본 자산 정보 전체| R1
+  R2 -->|추가 정보 요청| A2
+  A2 -->|추가 자산 정보 응답| R2
+  O1 -->|추가 정보 요청| A3
+  A3 -->|의존성/운영 영향 관련 정보 응답| O1
+```
 
 ## 저장소 구조
 
 ```text
-Megaton/
+PacherAgents/
   MultiAIagent/
     vuln_collector_agent/
   InfraSubjectTo Vulnerability Inspection/
+  image/
+    MegatonStructure.drawio
   README.md
 ```
 
@@ -19,29 +62,17 @@ Megaton/
 여기는 여러 역할을 가진 AI 에이전트들을 모아두는 상위 폴더입니다.
 
 - 현재 포함된 에이전트:
-  - `vuln_collector_agent/`
+  - 취약점 수집 에이전트(vuln_collector_agent)
 - 앞으로 추가될 수 있는 예시:
-  - 취약점 정규화 에이전트
-  - 자산 매칭 에이전트
+  - 자산 수집 에이전트
   - 위험도 평가 에이전트
-  - 운영 영향 분석 에이전트
-  - 인프라 코드 점검 에이전트
+  - 운영 및 영향도 점검 후 조치 에이전트
 
 즉, `MultiAIagent/`는 "에이전트 구현체들이 들어가는 영역"이라고 보면 됩니다.
 
 ### `InfraSubjectTo Vulnerability Inspection/`
 
 여기는 취약점 점검 대상이 되는 인프라 코드들을 올려두는 폴더입니다.
-
-예를 들면 아래와 같은 코드가 들어올 수 있습니다.
-
-- Terraform 코드
-- Kubernetes manifests
-- Helm chart
-- Dockerfile / Compose 파일
-- 배포 스크립트
-- 운영 설정 파일
-
 즉, 이 폴더는 "분석 대상 인프라 자산이 들어가는 영역"입니다.
 
 ## 현재 구현된 에이전트
@@ -52,59 +83,8 @@ Megaton/
 
 상세 설명은 [`MultiAIagent/vuln_collector_agent/README.md`](MultiAIagent/vuln_collector_agent/README.md)에서 볼 수 있습니다.
 
-기본 대상 CVE:
 
-- `CVE-2021-23017`
-- `CVE-2021-44228`
 
-생성 결과물:
-
-- `focused_selected_raw_cves.json`
-- `asset_matching_payloads.json`
-- `risk_assessment_payloads.json`
-- `operational_impact_payloads.json`
-
-## 의도한 운영 방식
-
-Megaton은 크게 아래 두 축으로 확장되는 것을 전제로 합니다.
-
-1. `MultiAIagent/` 아래에 역할별 에이전트를 계속 추가한다.
-2. `InfraSubjectTo Vulnerability Inspection/` 아래에 실제 점검 대상 인프라 코드들을 쌓는다.
-
-이 구조를 기준으로 보면, 앞으로는 "에이전트가 생성한 취약점/위험도 정보"와 "실제 인프라 코드"를 연결하는 흐름으로 발전시키기 쉽습니다.
-
-예를 들면 아래 같은 흐름입니다.
-
-1. 취약점 수집 에이전트가 CVE 기반 데이터셋을 만든다.
-2. 자산 매칭 또는 점검 에이전트가 인프라 코드에서 관련 컴포넌트를 찾는다.
-3. 위험도 평가 에이전트가 우선순위를 정한다.
-4. 운영 영향 분석 에이전트가 패치 시 주의점을 정리한다.
-
-## 빠른 시작
-
-프로젝트 루트 `.env` 파일에 OpenCVE 인증 정보를 넣습니다.
-
-```env
-OPENCVE_API_KEY=your_key_here
-```
-
-또는
-
-```env
-OPENCVE_API_TOKEN=your_token_here
-```
-
-현재 구현된 취약점 수집 에이전트는 아래처럼 실행할 수 있습니다.
-
-```bash
-python3 MultiAIagent/vuln_collector_agent/main.py
-```
-
-실행 후 아래 경로에 JSON 결과물이 생성됩니다.
-
-```text
-MultiAIagent/vuln_collector_agent/data/
-```
 
 ## 협업 기준
 
