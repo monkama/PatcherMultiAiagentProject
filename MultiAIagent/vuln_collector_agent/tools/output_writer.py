@@ -2,7 +2,10 @@
 import json
 from pathlib import Path
 
-from tools.tooling import tool
+try:
+    from .tooling import tool
+except ImportError:
+    from tools.tooling import tool
 
 _BASE_DIR = Path(__file__).parent.parent
 

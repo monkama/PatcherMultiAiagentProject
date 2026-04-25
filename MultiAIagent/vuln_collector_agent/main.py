@@ -5,26 +5,45 @@ from pathlib import Path
 from typing import Optional
 from dotenv import load_dotenv
 
-from tools.cve_fetcher import fetch_selected_raw_cve_record
-from tools.cwe_fetcher import fetch_cwe_weakness_summary
-from tools.output_writer import save_vulnerability_result
-from tools.payload_builder import (
-    build_asset_matching_payloads,
-    build_operational_impact_payloads,
-    build_risk_assessment_payloads,
-)
+try:
+    from .tools.cve_fetcher import fetch_selected_raw_cve_record
+    from .tools.cwe_fetcher import fetch_cwe_weakness_summary
+    from .tools.evidence_fetcher import fetch_operational_evidence, fetch_vendor_followup_evidence
+    from .tools.output_writer import save_vulnerability_result
+    from .tools.payload_builder import (
+        build_operational_impact_payloads,
+        build_risk_assessment_payloads,
+        decide_operational_evidence_requirement,
+        decide_vendor_followup_requirement,
+    )
+except ImportError:
+    from tools.cve_fetcher import fetch_selected_raw_cve_record
+    from tools.cwe_fetcher import fetch_cwe_weakness_summary
+    from tools.evidence_fetcher import fetch_operational_evidence, fetch_vendor_followup_evidence
+    from tools.output_writer import save_vulnerability_result
+    from tools.payload_builder import (
+        build_operational_impact_payloads,
+        build_risk_assessment_payloads,
+        decide_operational_evidence_requirement,
+        decide_vendor_followup_requirement,
+    )
 
 AGENT_ROOT = Path(__file__).resolve().parent
-PROJECT_ROOT = AGENT_ROOT.parent.parent
+PROJECT_ROOT = AGENT_ROOT.parent
+ENV_PATHS = [
+    PROJECT_ROOT / ".env",
+    PROJECT_ROOT.parent / ".env",
+]
 FOCUSED_CVE_OUTPUT_PATH = "data/focused_selected_raw_cves.json"
-ASSET_PAYLOAD_OUTPUT_PATH = "data/asset_matching_payloads.json"
 RISK_PAYLOAD_OUTPUT_PATH = "data/risk_assessment_payloads.json"
 OPERATIONAL_PAYLOAD_OUTPUT_PATH = "data/operational_impact_payloads.json"
 DEFAULT_CVE_IDS = [
     "CVE-2021-23017",
     "CVE-2021-44228",
 ]
-load_dotenv(PROJECT_ROOT / ".env")
+for env_path in ENV_PATHS:
+    if env_path.exists():
+        load_dotenv(env_path)
 
 
 def parse_args():
@@ -41,6 +60,17 @@ def parse_args():
         "--output",
         default=FOCUSED_CVE_OUTPUT_PATH,
         help=f"Output JSON path under MultiAIagent/vuln_collector_agent. Defaults to {FOCUSED_CVE_OUTPUT_PATH}.",
+    )
+    parser.add_argument(
+        "--evidence-mode",
+        choices=("off", "auto", "on"),
+        default="auto",
+        help="Control operational evidence collection: off disables it, auto lets the LLM decide, on always collects it.",
+    )
+    parser.add_argument(
+        "--with-evidence",
+        action="store_true",
+        help="Alias for --evidence-mode on.",
     )
     return parser.parse_args()
 
@@ -79,10 +109,68 @@ def attach_cwe_details(raw_cve: dict, cwe_cache: Optional[dict] = None) -> dict:
     return raw_cve
 
 
-def collect_selected_cve_details(cve_ids: list[str]) -> dict:
+def attach_operational_evidence(raw_cve: dict, evidence_cache: Optional[dict] = None) -> dict:
+    if evidence_cache is None:
+        evidence_cache = {}
+
+    cve_id = raw_cve.get("cve_id") or "unknown"
+    if cve_id not in evidence_cache:
+        evidence_cache[cve_id] = fetch_operational_evidence(cve_id)
+
+    raw_cve["operational_evidence"] = evidence_cache[cve_id]
+    return raw_cve
+
+
+def attach_operational_evidence_decision(raw_cve: dict, decision_cache: Optional[dict] = None) -> dict:
+    if decision_cache is None:
+        decision_cache = {}
+
+    cve_id = raw_cve.get("cve_id") or "unknown"
+    if cve_id not in decision_cache:
+        decision_cache[cve_id] = decide_operational_evidence_requirement(raw_cve)
+
+    raw_cve["operational_evidence_decision"] = decision_cache[cve_id]
+    return raw_cve
+
+
+def attach_vendor_followup_decision(raw_cve: dict, decision_cache: Optional[dict] = None) -> dict:
+    if decision_cache is None:
+        decision_cache = {}
+
+    cve_id = raw_cve.get("cve_id") or "unknown"
+    if cve_id not in decision_cache:
+        decision_cache[cve_id] = decide_vendor_followup_requirement(raw_cve)
+
+    raw_cve["vendor_followup_decision"] = decision_cache[cve_id]
+    return raw_cve
+
+
+def attach_vendor_followup_evidence(raw_cve: dict, evidence_cache: Optional[dict] = None) -> dict:
+    if evidence_cache is None:
+        evidence_cache = {}
+
+    cve_id = raw_cve.get("cve_id") or "unknown"
+    decision = raw_cve.get("vendor_followup_decision") or {}
+    selected_urls = decision.get("vendor_urls") or []
+    cache_key = (cve_id, tuple(selected_urls))
+    if cache_key not in evidence_cache:
+        evidence_cache[cache_key] = fetch_vendor_followup_evidence(
+            raw_cve.get("operational_evidence") or {},
+            selected_urls=selected_urls,
+        )
+
+    raw_cve["vendor_followup_evidence"] = evidence_cache[cache_key]
+    return raw_cve
+
+
+def collect_selected_cve_details(cve_ids: list[str], evidence_mode: str = "auto") -> dict:
     records = []
     errors = []
     cwe_cache = {}
+    evidence_cache = {}
+    decision_cache = {}
+    vendor_followup_decision_cache = {}
+    vendor_followup_evidence_cache = {}
 
     for cve_id in cve_ids:
         raw_cve = fetch_selected_raw_cve_record(cve_id)
@@ -94,6 +182,20 @@ def collect_selected_cve_details(cve_ids: list[str]) -> dict:
             continue
 
         raw_cve = attach_cwe_details(raw_cve, cwe_cache=cwe_cache)
+
+        if evidence_mode == "auto":
+            raw_cve = attach_operational_evidence_decision(raw_cve, decision_cache=decision_cache)
+            if (raw_cve.get("operational_evidence_decision") or {}).get("collect_operational_evidence"):
+                raw_cve = attach_operational_evidence(raw_cve, evidence_cache=evidence_cache)
+                raw_cve = attach_vendor_followup_decision(raw_cve, decision_cache=vendor_followup_decision_cache)
+                if (raw_cve.get("vendor_followup_decision") or {}).get("investigate_vendor_context"):
+                    raw_cve = attach_vendor_followup_evidence(raw_cve, evidence_cache=vendor_followup_evidence_cache)
+        elif evidence_mode == "on":
+            raw_cve = attach_operational_evidence(raw_cve, evidence_cache=evidence_cache)
+            raw_cve = attach_vendor_followup_decision(raw_cve, decision_cache=vendor_followup_decision_cache)
+            if (raw_cve.get("vendor_followup_decision") or {}).get("investigate_vendor_context"):
+                raw_cve = attach_vendor_followup_evidence(raw_cve, evidence_cache=vendor_followup_evidence_cache)
+
         records.append(raw_cve)
 
     return {
@@ -108,7 +210,6 @@ def collect_selected_cve_details(cve_ids: list[str]) -> dict:
 
 def generate_agent_payloads(dataset: dict) -> dict[str, dict]:
     return {
-        ASSET_PAYLOAD_OUTPUT_PATH: build_asset_matching_payloads(dataset),
         RISK_PAYLOAD_OUTPUT_PATH: build_risk_assessment_payloads(dataset),
         OPERATIONAL_PAYLOAD_OUTPUT_PATH: build_operational_impact_payloads(dataset),
     }
@@ -126,14 +227,16 @@ def save_generated_outputs(dataset: dict, output_path: str) -> None:
 if __name__ == "__main__":
     args = parse_args()
     cve_ids = args.cve_ids or DEFAULT_CVE_IDS
+    evidence_mode = "on" if args.with_evidence else args.evidence_mode
     try:
-        dataset = collect_selected_cve_details(cve_ids)
+        dataset = collect_selected_cve_details(cve_ids, evidence_mode=evidence_mode)
         save_generated_outputs(dataset, output_path=args.output)
     except Exception as exc:
         print(f"Error: {exc}", file=sys.stderr)
         print(
-            "Hint: this command requires network access to OpenCVE. "
-            "Check your internet connection, DNS, VPN/proxy settings, and OPENCVE_API_KEY. "
+            "Hint: run this with your Python 3.13 virtual environment that has Strands installed. "
+            "This command requires network access to OpenCVE, the MITRE CWE API, and the OpenAI Responses API. "
+            "Check your internet connection, DNS, VPN/proxy settings, OPENCVE_API_KEY, and OPENAI_API_KEY. "
             "You can test DNS with: nslookup app.opencve.io",
             file=sys.stderr,
         )

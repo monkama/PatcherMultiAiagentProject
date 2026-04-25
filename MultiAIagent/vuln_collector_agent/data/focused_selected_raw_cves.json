@@ -124,7 +124,13 @@
             }
           ]
         }
-      ]
+      ],
+      "operational_evidence_decision": {
+        "collect_operational_evidence": false,
+        "confidence": "high",
+        "rationale": "Current evidence already identifies the affected product and version range clearly, and the fix boundary is apparent at 1.20.1. This is a straightforward server product case, so extra advisory or patch context is unlikely to materially improve rollout guidance.",
+        "evidence_targets": []
+      }
     },
     {
       "cve_id": "CVE-2021-44228",
@@ -577,7 +583,971 @@
             }
           ]
         }
-      ]
+      ],
+      "operational_evidence_decision": {
+        "collect_operational_evidence": true,
+        "confidence": "high",
+        "rationale": "This is a library vulnerability with complex branch-specific fixed versions and operational ambiguity around affected artifact scope, upgrade targets, and vendor mitigation guidance. Extra advisory and patch context would materially improve remediation planning.",
+        "evidence_targets": [
+          "vendor_advisories",
+          "patch_references",
+          "nvd_context"
+        ]
+      },
+      "operational_evidence": {
+        "cve_id": "CVE-2021-44228",
+        "nvd_context": {
+          "cve_id": "CVE-2021-44228",
+          "vuln_status": "Analyzed",
+          "published": "2021-12-10T10:15:09.143",
+          "last_modified": "2026-02-20T16:15:59.363",
+          "kev": {
+            "listed": true,
+            "date_added": "2021-12-10",
+            "action_due": "2021-12-24",
+            "required_action": "For all affected software assets for which updates exist, the only acceptable remediation actions are: 1) Apply updates; OR 2) remove affected assets from agency networks. Temporary mitigations using one of the measures provided at https://www.cisa.gov/uscert/ed-22-02-apache-log4j-recommended-mitigation-measures are only acceptable until updates are available.",
+            "vulnerability_name": "Apache Log4j2 Remote Code Execution Vulnerability"
+          },
+          "references": [
+            {
+              "url": "http://packetstormsecurity.com/files/165225/Apache-Log4j2-2.14.1-Remote-Code-Execution.html",
+              "source": "security@apache.org",
+              "tags": [
+                "Third Party Advisory",
+                "VDB Entry"
+              ]
+            },
+            {
+              "url": "http://packetstormsecurity.com/files/165260/VMware-Security-Advisory-2021-0028.html",
+              "source": "security@apache.org",
+              "tags": [
+                "Third Party Advisory",
+                "VDB Entry"
+              ]
+            },
+            {
+              "url": "http://packetstormsecurity.com/files/165261/Apache-Log4j2-2.14.1-Information-Disclosure.html",
+              "source": "security@apache.org",
+              "tags": [
+                "Exploit",
+                "Third Party Advisory",
+                "VDB Entry"
+              ]
+            },
+            {
+              "url": "http://packetstormsecurity.com/files/165270/Apache-Log4j2-2.14.1-Remote-Code-Execution.html",
+              "source": "security@apache.org",
+              "tags": [
+                "Exploit",
+                "Third Party Advisory",
+                "VDB Entry"
+              ]
+            },
+            {
+              "url": "http://packetstormsecurity.com/files/165281/Log4j2-Log4Shell-Regexes.html",
+              "source": "security@apache.org",
+              "tags": [
+                "Third Party Advisory",
+                "VDB Entry"
+              ]
+            },
+            {
+              "url": "http://packetstormsecurity.com/files/165282/Log4j-Payload-Generator.html",
+              "source": "security@apache.org",
+              "tags": [
+                "Third Party Advisory",
+                "VDB Entry"
+              ]
+            },
+            {
+              "url": "http://packetstormsecurity.com/files/165306/L4sh-Log4j-Remote-Code-Execution.html",
+              "source": "security@apache.org",
+              "tags": [
+                "Third Party Advisory",
+                "VDB Entry"
+              ]
+            },
+            {
+              "url": "http://packetstormsecurity.com/files/165307/Log4j-Remote-Code-Execution-Word-Bypassing.html",
+              "source": "security@apache.org",
+              "tags": [
+                "Third Party Advisory",
+                "VDB Entry"
+              ]
+            },
+            {
+              "url": "http://packetstormsecurity.com/files/165311/log4j-scan-Extensive-Scanner.html",
+              "source": "security@apache.org",
+              "tags": [
+                "Broken Link",
+                "Third Party Advisory",
+                "VDB Entry"
+              ]
+            },
+            {
+              "url": "http://packetstormsecurity.com/files/165371/VMware-Security-Advisory-2021-0028.4.html",
+              "source": "security@apache.org",
+              "tags": [
+                "Exploit",
+                "Third Party Advisory",
+                "VDB Entry"
+              ]
+            },
+            {
+              "url": "http://packetstormsecurity.com/files/165532/Log4Shell-HTTP-Header-Injection.html",
+              "source": "security@apache.org",
+              "tags": [
+                "Exploit",
+                "Third Party Advisory",
+                "VDB Entry"
+              ]
+            },
+            {
+              "url": "http://packetstormsecurity.com/files/165642/VMware-vCenter-Server-Unauthenticated-Log4Shell-JNDI-Injection-Remote-Code-Execution.html",
+              "source": "security@apache.org",
+              "tags": [
+                "Exploit",
+                "Third Party Advisory",
+                "VDB Entry"
+              ]
+            },
+            {
+              "url": "http://packetstormsecurity.com/files/165673/UniFi-Network-Application-Unauthenticated-Log4Shell-Remote-Code-Execution.html",
+              "source": "security@apache.org",
+              "tags": [
+                "Exploit",
+                "Third Party Advisory",
+                "VDB Entry"
+              ]
+            },
+            {
+              "url": "http://packetstormsecurity.com/files/167794/Open-Xchange-App-Suite-7.10.x-Cross-Site-Scripting-Command-Injection.html",
+              "source": "security@apache.org",
+              "tags": [
+                "Third Party Advisory",
+                "VDB Entry"
+              ]
+            },
+            {
+              "url": "http://packetstormsecurity.com/files/167917/MobileIron-Log4Shell-Remote-Command-Execution.html",
+              "source": "security@apache.org",
+              "tags": [
+                "Exploit",
+                "Third Party Advisory",
+                "VDB Entry"
+              ]
+            },
+            {
+              "url": "http://packetstormsecurity.com/files/171626/AD-Manager-Plus-7122-Remote-Code-Execution.html",
+              "source": "security@apache.org",
+              "tags": [
+                "Third Party Advisory",
+                "VDB Entry"
+              ]
+            },
+            {
+              "url": "http://seclists.org/fulldisclosure/2022/Dec/2",
+              "source": "security@apache.org",
+              "tags": [
+                "Exploit",
+                "Mailing List",
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "http://seclists.org/fulldisclosure/2022/Jul/11",
+              "source": "security@apache.org",
+              "tags": [
+                "Mailing List",
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "http://seclists.org/fulldisclosure/2022/Mar/23",
+              "source": "security@apache.org",
+              "tags": [
+                "Mailing List",
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "http://www.openwall.com/lists/oss-security/2021/12/10/1",
+              "source": "security@apache.org",
+              "tags": [
+                "Mailing List",
+                "Mitigation",
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "http://www.openwall.com/lists/oss-security/2021/12/10/2",
+              "source": "security@apache.org",
+              "tags": [
+                "Mailing List",
+                "Mitigation",
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "http://www.openwall.com/lists/oss-security/2021/12/10/3",
+              "source": "security@apache.org",
+              "tags": [
+                "Mailing List",
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "http://www.openwall.com/lists/oss-security/2021/12/13/1",
+              "source": "security@apache.org",
+              "tags": [
+                "Mailing List",
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "http://www.openwall.com/lists/oss-security/2021/12/13/2",
+              "source": "security@apache.org",
+              "tags": [
+                "Mailing List",
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "http://www.openwall.com/lists/oss-security/2021/12/14/4",
+              "source": "security@apache.org",
+              "tags": [
+                "Mailing List",
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "http://www.openwall.com/lists/oss-security/2021/12/15/3",
+              "source": "security@apache.org",
+              "tags": [
+                "Mailing List",
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://cert-portal.siemens.com/productcert/pdf/ssa-397453.pdf",
+              "source": "security@apache.org",
+              "tags": [
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://cert-portal.siemens.com/productcert/pdf/ssa-479842.pdf",
+              "source": "security@apache.org",
+              "tags": [
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://cert-portal.siemens.com/productcert/pdf/ssa-661247.pdf",
+              "source": "security@apache.org",
+              "tags": [
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://cert-portal.siemens.com/productcert/pdf/ssa-714170.pdf",
+              "source": "security@apache.org",
+              "tags": [
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://github.com/cisagov/log4j-affected-db",
+              "source": "security@apache.org",
+              "tags": [
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://github.com/cisagov/log4j-affected-db/blob/develop/SOFTWARE-LIST.md",
+              "source": "security@apache.org",
+              "tags": [
+                "Broken Link",
+                "Product",
+                "US Government Resource"
+              ]
+            },
+            {
+              "url": "https://github.com/nu11secur1ty/CVE-mitre/tree/main/CVE-2021-44228",
+              "source": "security@apache.org",
+              "tags": [
+                "Exploit",
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://lists.debian.org/debian-lts-announce/2021/12/msg00007.html",
+              "source": "security@apache.org",
+              "tags": [
+                "Mailing List",
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://lists.fedoraproject.org/archives/list/package-announce%40lists.fedoraproject.org/message/M5CSVUNV4HWZZXGOKNSK6L7RPM7BOKIB/",
+              "source": "security@apache.org",
+              "tags": [
+                "Release Notes"
+              ]
+            },
+            {
+              "url": "https://lists.fedoraproject.org/archives/list/package-announce%40lists.fedoraproject.org/message/VU57UJDCFIASIO35GC55JMKSRXJMCDFM/",
+              "source": "security@apache.org",
+              "tags": [
+                "Release Notes"
+              ]
+            },
+            {
+              "url": "https://logging.apache.org/log4j/2.x/security.html",
+              "source": "security@apache.org",
+              "tags": [
+                "Release Notes",
+                "Vendor Advisory"
+              ]
+            },
+            {
+              "url": "https://msrc-blog.microsoft.com/2021/12/11/microsofts-response-to-cve-2021-44228-apache-log4j2/",
+              "source": "security@apache.org",
+              "tags": [
+                "Patch",
+                "Third Party Advisory",
+                "Vendor Advisory"
+              ]
+            },
+            {
+              "url": "https://psirt.global.sonicwall.com/vuln-detail/SNWLID-2021-0032",
+              "source": "security@apache.org",
+              "tags": [
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://security.netapp.com/advisory/ntap-20211210-0007/",
+              "source": "security@apache.org",
+              "tags": [
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://support.apple.com/kb/HT213189",
+              "source": "security@apache.org",
+              "tags": [
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://tools.cisco.com/security/center/content/CiscoSecurityAdvisory/cisco-sa-apache-log4j-qRuKNEbd",
+              "source": "security@apache.org",
+              "tags": [
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://twitter.com/kurtseifried/status/1469345530182455296",
+              "source": "security@apache.org",
+              "tags": [
+                "Broken Link",
+                "Exploit",
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://www.bentley.com/en/common-vulnerability-exposure/be-2022-0001",
+              "source": "security@apache.org",
+              "tags": [
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://www.debian.org/security/2021/dsa-5020",
+              "source": "security@apache.org",
+              "tags": [
+                "Mailing List",
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://www.intel.com/content/www/us/en/security-center/advisory/intel-sa-00646.html",
+              "source": "security@apache.org",
+              "tags": [
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://www.kb.cert.org/vuls/id/930724",
+              "source": "security@apache.org",
+              "tags": [
+                "Third Party Advisory",
+                "US Government Resource"
+              ]
+            },
+            {
+              "url": "https://www.nu11secur1ty.com/2021/12/cve-2021-44228.html",
+              "source": "security@apache.org",
+              "tags": [
+                "Exploit",
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://www.oracle.com/security-alerts/alert-cve-2021-44228.html",
+              "source": "security@apache.org",
+              "tags": [
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://www.oracle.com/security-alerts/cpuapr2022.html",
+              "source": "security@apache.org",
+              "tags": [
+                "Patch",
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://www.oracle.com/security-alerts/cpujan2022.html",
+              "source": "security@apache.org",
+              "tags": [
+                "Patch",
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "http://packetstormsecurity.com/files/165225/Apache-Log4j2-2.14.1-Remote-Code-Execution.html",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Third Party Advisory",
+                "VDB Entry"
+              ]
+            },
+            {
+              "url": "http://packetstormsecurity.com/files/165260/VMware-Security-Advisory-2021-0028.html",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Third Party Advisory",
+                "VDB Entry"
+              ]
+            },
+            {
+              "url": "http://packetstormsecurity.com/files/165261/Apache-Log4j2-2.14.1-Information-Disclosure.html",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Exploit",
+                "Third Party Advisory",
+                "VDB Entry"
+              ]
+            },
+            {
+              "url": "http://packetstormsecurity.com/files/165270/Apache-Log4j2-2.14.1-Remote-Code-Execution.html",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Exploit",
+                "Third Party Advisory",
+                "VDB Entry"
+              ]
+            },
+            {
+              "url": "http://packetstormsecurity.com/files/165281/Log4j2-Log4Shell-Regexes.html",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Third Party Advisory",
+                "VDB Entry"
+              ]
+            },
+            {
+              "url": "http://packetstormsecurity.com/files/165282/Log4j-Payload-Generator.html",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Third Party Advisory",
+                "VDB Entry"
+              ]
+            },
+            {
+              "url": "http://packetstormsecurity.com/files/165306/L4sh-Log4j-Remote-Code-Execution.html",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Third Party Advisory",
+                "VDB Entry"
+              ]
+            },
+            {
+              "url": "http://packetstormsecurity.com/files/165307/Log4j-Remote-Code-Execution-Word-Bypassing.html",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Third Party Advisory",
+                "VDB Entry"
+              ]
+            },
+            {
+              "url": "http://packetstormsecurity.com/files/165311/log4j-scan-Extensive-Scanner.html",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Broken Link",
+                "Third Party Advisory",
+                "VDB Entry"
+              ]
+            },
+            {
+              "url": "http://packetstormsecurity.com/files/165371/VMware-Security-Advisory-2021-0028.4.html",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Exploit",
+                "Third Party Advisory",
+                "VDB Entry"
+              ]
+            },
+            {
+              "url": "http://packetstormsecurity.com/files/165532/Log4Shell-HTTP-Header-Injection.html",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Exploit",
+                "Third Party Advisory",
+                "VDB Entry"
+              ]
+            },
+            {
+              "url": "http://packetstormsecurity.com/files/165642/VMware-vCenter-Server-Unauthenticated-Log4Shell-JNDI-Injection-Remote-Code-Execution.html",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Exploit",
+                "Third Party Advisory",
+                "VDB Entry"
+              ]
+            },
+            {
+              "url": "http://packetstormsecurity.com/files/165673/UniFi-Network-Application-Unauthenticated-Log4Shell-Remote-Code-Execution.html",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Exploit",
+                "Third Party Advisory",
+                "VDB Entry"
+              ]
+            },
+            {
+              "url": "http://packetstormsecurity.com/files/167794/Open-Xchange-App-Suite-7.10.x-Cross-Site-Scripting-Command-Injection.html",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Third Party Advisory",
+                "VDB Entry"
+              ]
+            },
+            {
+              "url": "http://packetstormsecurity.com/files/167917/MobileIron-Log4Shell-Remote-Command-Execution.html",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Exploit",
+                "Third Party Advisory",
+                "VDB Entry"
+              ]
+            },
+            {
+              "url": "http://packetstormsecurity.com/files/171626/AD-Manager-Plus-7122-Remote-Code-Execution.html",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Third Party Advisory",
+                "VDB Entry"
+              ]
+            },
+            {
+              "url": "http://seclists.org/fulldisclosure/2022/Dec/2",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Exploit",
+                "Mailing List",
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "http://seclists.org/fulldisclosure/2022/Jul/11",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Mailing List",
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "http://seclists.org/fulldisclosure/2022/Mar/23",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Mailing List",
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "http://www.openwall.com/lists/oss-security/2021/12/10/1",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Mailing List",
+                "Mitigation",
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "http://www.openwall.com/lists/oss-security/2021/12/10/2",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Mailing List",
+                "Mitigation",
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "http://www.openwall.com/lists/oss-security/2021/12/10/3",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Mailing List",
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "http://www.openwall.com/lists/oss-security/2021/12/13/1",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Mailing List",
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "http://www.openwall.com/lists/oss-security/2021/12/13/2",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Mailing List",
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "http://www.openwall.com/lists/oss-security/2021/12/14/4",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Mailing List",
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "http://www.openwall.com/lists/oss-security/2021/12/15/3",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Mailing List",
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://cert-portal.siemens.com/productcert/pdf/ssa-397453.pdf",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://cert-portal.siemens.com/productcert/pdf/ssa-479842.pdf",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://cert-portal.siemens.com/productcert/pdf/ssa-661247.pdf",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://cert-portal.siemens.com/productcert/pdf/ssa-714170.pdf",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://github.com/cisagov/log4j-affected-db",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://github.com/cisagov/log4j-affected-db/blob/develop/SOFTWARE-LIST.md",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Broken Link",
+                "Product",
+                "US Government Resource"
+              ]
+            },
+            {
+              "url": "https://github.com/nu11secur1ty/CVE-mitre/tree/main/CVE-2021-44228",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Exploit",
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://lists.debian.org/debian-lts-announce/2021/12/msg00007.html",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Mailing List",
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://lists.fedoraproject.org/archives/list/package-announce%40lists.fedoraproject.org/message/M5CSVUNV4HWZZXGOKNSK6L7RPM7BOKIB/",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Release Notes"
+              ]
+            },
+            {
+              "url": "https://lists.fedoraproject.org/archives/list/package-announce%40lists.fedoraproject.org/message/VU57UJDCFIASIO35GC55JMKSRXJMCDFM/",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Release Notes"
+              ]
+            },
+            {
+              "url": "https://logging.apache.org/log4j/2.x/security.html",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Release Notes",
+                "Vendor Advisory"
+              ]
+            },
+            {
+              "url": "https://msrc-blog.microsoft.com/2021/12/11/microsofts-response-to-cve-2021-44228-apache-log4j2/",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Patch",
+                "Third Party Advisory",
+                "Vendor Advisory"
+              ]
+            },
+            {
+              "url": "https://psirt.global.sonicwall.com/vuln-detail/SNWLID-2021-0032",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://security.netapp.com/advisory/ntap-20211210-0007/",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://support.apple.com/kb/HT213189",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://tools.cisco.com/security/center/content/CiscoSecurityAdvisory/cisco-sa-apache-log4j-qRuKNEbd",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://twitter.com/kurtseifried/status/1469345530182455296",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Broken Link",
+                "Exploit",
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://www.bentley.com/en/common-vulnerability-exposure/be-2022-0001",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://www.debian.org/security/2021/dsa-5020",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Mailing List",
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://www.intel.com/content/www/us/en/security-center/advisory/intel-sa-00646.html",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://www.kb.cert.org/vuls/id/930724",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Third Party Advisory",
+                "US Government Resource"
+              ]
+            },
+            {
+              "url": "https://www.nu11secur1ty.com/2021/12/cve-2021-44228.html",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Exploit",
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://www.oracle.com/security-alerts/alert-cve-2021-44228.html",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://www.oracle.com/security-alerts/cpuapr2022.html",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Patch",
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://www.oracle.com/security-alerts/cpujan2022.html",
+              "source": "af854a3a-2127-422b-91ae-364da2661108",
+              "tags": [
+                "Patch",
+                "Third Party Advisory"
+              ]
+            },
+            {
+              "url": "https://www.cisa.gov/known-exploited-vulnerabilities-catalog?field_cve=CVE-2021-44228",
+              "source": "134c704f-9b21-4f2e-91b3-4a467353bcc0",
+              "tags": [
+                "Third Party Advisory",
+                "US Government Resource"
+              ]
+            }
+          ],
+          "vendor_advisories": [
+            {
+              "url": "https://logging.apache.org/log4j/2.x/security.html",
+              "domain": "logging.apache.org",
+              "source": "security@apache.org",
+              "tags": [
+                "Release Notes",
+                "Vendor Advisory"
+              ],
+              "title": "Security :: Apache Logging Services",
+              "summary": "unknown",
+              "content_type": "text/html",
+              "preview_status": "ok"
+            },
+            {
+              "url": "https://msrc-blog.microsoft.com/2021/12/11/microsofts-response-to-cve-2021-44228-apache-log4j2/",
+              "domain": "msrc-blog.microsoft.com",
+              "source": "security@apache.org",
+              "tags": [
+                "Patch",
+                "Third Party Advisory",
+                "Vendor Advisory"
+              ],
+              "title": "microsofts-response-to-cve-2021-44228-apache-log4j2",
+              "summary": "unknown",
+              "content_type": "text/html",
+              "preview_status": "ok"
+            }
+          ],
+          "patch_references": [
+            {
+              "url": "https://lists.fedoraproject.org/archives/list/package-announce%40lists.fedoraproject.org/message/M5CSVUNV4HWZZXGOKNSK6L7RPM7BOKIB/",
+              "source": "security@apache.org",
+              "tags": [
+                "Release Notes"
+              ]
+            },
+            {
+              "url": "https://lists.fedoraproject.org/archives/list/package-announce%40lists.fedoraproject.org/message/VU57UJDCFIASIO35GC55JMKSRXJMCDFM/",
+              "source": "security@apache.org",
+              "tags": [
+                "Release Notes"
+              ]
+            },
+            {
+              "url": "https://logging.apache.org/log4j/2.x/security.html",
+              "source": "security@apache.org",
+              "tags": [
+                "Release Notes",
+                "Vendor Advisory"
+              ]
+            },
+            {
+              "url": "https://msrc-blog.microsoft.com/2021/12/11/microsofts-response-to-cve-2021-44228-apache-log4j2/",
+              "source": "security@apache.org",
+              "tags": [
+                "Patch",
+                "Third Party Advisory",
+                "Vendor Advisory"
+              ]
+            },
+            {
+              "url": "https://www.oracle.com/security-alerts/cpuapr2022.html",
+              "source": "security@apache.org",
+              "tags": [
+                "Patch",
+                "Third Party Advisory"
+              ]
+            }
+          ]
+        },
+        "source_summary": [
+          "Collected 2 vendor advisory preview(s) from NVD references.",
+          "Collected 5 patch or release-note reference(s) relevant to remediation.",
+          "NVD includes a remediation-oriented KEV required action entry."
+        ]
+      },
+      "vendor_followup_decision": {
+        "investigate_vendor_context": true,
+        "confidence": "high",
+        "rationale": "This is a widely bundled library flaw where downstream products often lag upstream fixes, so vendor advisories can materially improve product-specific remediation guidance.",
+        "vendor_domains": [
+          "logging.apache.org",
+          "msrc-blog.microsoft.com"
+        ],
+        "vendor_urls": [
+          "https://logging.apache.org/log4j/2.x/security.html",
+          "https://msrc-blog.microsoft.com/2021/12/11/microsofts-response-to-cve-2021-44228-apache-log4j2/"
+        ]
+      },
+      "vendor_followup_evidence": {
+        "details": [
+          {
+            "url": "https://logging.apache.org/log4j/2.x/security.html",
+            "domain": "logging.apache.org",
+            "title": "Security :: Apache Logging Services",
+            "summary": "unknown",
+            "detail_status": "ok",
+            "content_excerpt": "Security :: Apache Logging Services Logging Services a project of Apache Software Foundation Home About Guidelines Charter Team Processes Wiki What is logging? Download Support Security FAQ XML Schema Blog The ASF License Donate Thanks Home Security Edit this Page Security The Logging Services Security Team takes security seriously. This allows our users to place their trust in Log4j for protecting their mission-critical data. On this page, we will help you find guidance on security-related issues and access to known vulnerabilities. Log4j 1 has reached End of Life in 2015, and is no longer supported. Vulnerabilities reported after August 2015 against Log4j 1 are not checked and will not be fixed. Users should upgrade to Log4j 2 to obtain security fixes. Getting support If you need help on building or configuring Logging Services projects or other help on following the instructions to mitigate the known vulnerabilities listed here, please use our user support channels . If you need to apply a source code patch, use the building instructions for the project version that you are using. These instructions can be found in BUILDING.adoc , BUILDING.md , etc. files distributed with the so"
+          },
+          {
+            "url": "https://msrc-blog.microsoft.com/2021/12/11/microsofts-response-to-cve-2021-44228-apache-log4j2/",
+            "domain": "msrc-blog.microsoft.com",
+            "title": "microsofts-response-to-cve-2021-44228-apache-log4j2",
+            "summary": "unknown",
+            "detail_status": "ok",
+            "content_excerpt": "microsofts-response-to-cve-2021-44228-apache-log4j2 This is the Trace Id: 3e182543d19df46a42791d72c08bbe23 Skip to main content MSRC Report Security Vulnerability Report Abuse Report Infringement Submission FAQs Reporting Vulnerability Security Update Guide Exploitability index Developer API documentation Frequently Asked Questions Technical Security Notifications Glossary Microsoft Bug Bounty Programs Microsoft Active Protections Program BlueHat Security Conference Researcher Recognition Program Windows Security Servicing Criteria Researcher Resource Center Mission Cyber Defense Operations Center Coordinated Vulnerability Disclosure Social Microsoft Security Response Center Security Research & Defense BlueHat Conference Blog Security Researcher Acknowledgments Online Services Researcher Acknowledgments AI Safety Acknowledgements Security Researcher Leaderboard Microsoft’s Response to CVE-2021-44228 Apache Log4j 2 MSRC / By MSRC Team / December 12, 2021 Published on: 2021 Dec 11, updated 2022 Apr 6. SUMMARY Microsoft continues our analysis of the remote code execution vulnerabilities related to Apache Log4j (a logging tool used in many Java-based applications) disclosed on 9 Dec 20"
+          }
+        ],
+        "source_summary": [
+          "Collected deeper vendor follow-up content from 2 advisory page(s).",
+          "Vendor follow-up domains: logging.apache.org, msrc-blog.microsoft.com."
+        ]
+      }
     }
   ]
 }

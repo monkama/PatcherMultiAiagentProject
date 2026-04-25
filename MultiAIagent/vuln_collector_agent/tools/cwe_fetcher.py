@@ -3,7 +3,10 @@ import re
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from tools.tooling import tool
+try:
+    from .tooling import tool
+except ImportError:
+    from tools.tooling import tool
 
 CWE_API_BASE_URL = "https://cwe-api.mitre.org/api/v1"
 

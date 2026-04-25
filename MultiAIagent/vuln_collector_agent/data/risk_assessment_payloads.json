@@ -9,13 +9,16 @@
     "cve_id": "CVE identifier.",
     "title": "Short vulnerability title.",
     "description": "Source vulnerability description.",
-    "cvss": "CVSS score, vector, provider, and parsed vector details.",
-    "severity": "Severity bucket derived from CVSS score.",
-    "security_domain": "Normalized vulnerability category such as remote-code-execution, memory-corruption, or denial-of-service.",
+    "cvss": "Source CVSS score, vector, provider, and parsed vector details.",
+    "severity": "Strands agent severity bucket derived from the overall evidence.",
+    "security_domain": "Strands agent-normalized vulnerability category.",
     "weaknesses": "CWE identifiers associated with the CVE.",
     "cwe_names": "Human-readable CWE names.",
-    "risk_signals": "Exploitability signals extracted from CVSS, such as network exposure and privilege requirements.",
-    "common_consequences": "CWE-derived attacker/security outcomes. This is not patch rollout risk."
+    "risk_signals": "Strands agent assessment of exploitability conditions and attack path.",
+    "common_consequences": "Strands agent summary of likely attacker or security outcomes.",
+    "analyst_summary": "Short security summary for triage.",
+    "sources_used": "Evidence sources that informed the final synthesis, including baseline CVE/CWE data and any optional enrichment.",
+    "evidence_summary": "Short summary of whether extra evidence was collected, why it was or was not collected, and the most relevant enrichment highlights."
   },
   "record_count": 2,
   "records": [
@@ -52,43 +55,30 @@
         "no_privileges_required": true,
         "no_user_interaction": true,
         "attack_complexity": "high",
-        "scope": "unchanged"
+        "scope": "unchanged",
+        "exploit_path_summary": "An attacker able to forge UDP packets appearing to come from the configured DNS server can trigger an off-by-one write in nginx resolver processing, causing a 1-byte memory overwrite."
       },
       "common_consequences": [
-        {
-          "scope": [
-            "Availability"
-          ],
-          "impact": [
-            "DoS: Crash, Exit, or Restart",
-            "DoS: Resource Consumption (CPU)",
-            "DoS: Resource Consumption (Memory)",
-            "DoS: Instability"
-          ],
-          "note": "This weakness will generally lead to undefined behavior and therefore crashes. In the case of overflows involving loop index variables, the likelihood of infinite loops is also high."
-        },
-        {
-          "scope": [
-            "Integrity"
-          ],
-          "impact": [
-            "Modify Memory"
-          ],
-          "note": "If the value in question is important to data (as opposed to flow), simple data corruption has occurred. Also, if the wrap around results in other conditions such as buffer overflows, further memory corruption may occur."
-        },
-        {
-          "scope": [
-            "Confidentiality",
-            "Availability",
-            "Access Control"
-          ],
-          "impact": [
-            "Execute Unauthorized Code or Commands",
-            "Bypass Protection Mechanism"
-          ],
-          "note": "This weakness can sometimes trigger buffer overflows which can be used to execute arbitrary code. This is usually outside the scope of a program's implicit security policy."
-        }
-      ]
+        "Worker process crash",
+        "Memory corruption",
+        "Potential further impact from memory overwrite"
+      ],
+      "analyst_summary": "High-severity nginx resolver memory corruption issue. Exploitation requires forged DNS UDP responses but no privileges or user interaction; likely impact includes worker crash and possible broader memory-corruption effects.",
+      "sources_used": [
+        "opencve_record",
+        "mitre_cwe_details",
+        "nvd_cpe_configurations"
+      ],
+      "evidence_summary": {
+        "collected_operational_evidence": false,
+        "gate_decision": false,
+        "gate_confidence": "high",
+        "gate_rationale": "Current evidence already identifies the affected product and version range clearly, and the fix boundary is apparent at 1.20.1. This is a straightforward server product case, so extra advisory or patch context is unlikely to materially improve rollout guidance.",
+        "collected_vendor_followup": false,
+        "vendor_followup_decision": false,
+        "vendor_followup_rationale": "No vendor follow-up rationale was recorded.",
+        "highlights": []
+      }
     },
     {
       "cve_id": "CVE-2021-44228",
@@ -129,112 +119,42 @@
         "no_privileges_required": true,
         "no_user_interaction": true,
         "attack_complexity": "low",
-        "scope": "changed"
+        "scope": "changed",
+        "exploit_path_summary": "An attacker who can control log messages or log message parameters can trigger Log4j2 JNDI lookups to attacker-controlled LDAP or related endpoints and achieve arbitrary code execution when message lookup substitution is enabled."
       },
       "common_consequences": [
-        {
-          "scope": [
-            "Availability"
-          ],
-          "impact": [
-            "DoS: Crash, Exit, or Restart",
-            "DoS: Resource Consumption (CPU)",
-            "DoS: Resource Consumption (Memory)"
-          ],
-          "note": "An attacker could provide unexpected values and cause a program crash or arbitrary control of resource allocation, leading to excessive consumption of resources such as memory and CPU."
-        },
-        {
-          "scope": [
-            "Confidentiality"
-          ],
-          "impact": [
-            "Read Memory",
-            "Read Files or Directories"
-          ],
-          "note": "An attacker could read confidential data if they are able to control resource references."
-        },
-        {
-          "scope": [
-            "Integrity",
-            "Confidentiality",
-            "Availability"
-          ],
-          "impact": [
-            "Modify Memory",
-            "Execute Unauthorized Code or Commands"
-          ],
-          "note": "An attacker could use malicious input to modify data or possibly alter control flow in unexpected ways, including arbitrary command execution."
-        },
-        {
-          "scope": [
-            "Availability"
-          ],
-          "impact": [
-            "DoS: Crash, Exit, or Restart",
-            "DoS: Resource Consumption (CPU)",
-            "DoS: Resource Consumption (Memory)",
-            "DoS: Resource Consumption (Other)"
-          ],
-          "note": "If an attacker can trigger the allocation of the limited resources, but the number or size of the resources is not controlled, then the most common result is denial of service. This would prevent valid users from accessing the product, and it could potentially have an impact on the surrounding environment, i.e., the product may slow down, crash due to unhandled errors, or lock out legitimate users. For example, a memory exhaustion attack against an application could slow down the application as well as its host operating system."
-        },
-        {
-          "scope": [
-            "Access Control",
-            "Other"
-          ],
-          "impact": [
-            "Bypass Protection Mechanism",
-            "Other"
-          ],
-          "note": "In some cases it may be possible to force the product to \"fail open\" in the event of resource exhaustion. The state of the product -- and possibly the security functionality - may then be compromised."
-        },
-        {
-          "scope": [
-            "Integrity"
-          ],
-          "impact": [
-            "Modify Application Data",
-            "Unexpected State"
-          ],
-          "note": "Attackers can modify unexpected objects or data that was assumed to be safe from modification. Deserialized data or code could be modified without using the provided accessor functions, or unexpected functions could be invoked."
-        },
-        {
-          "scope": [
-            "Availability"
-          ],
-          "impact": [
-            "DoS: Resource Consumption (CPU)"
-          ],
-          "note": "If a function is making an assumption on when to terminate, based on a sentry in a string, it could easily never terminate."
-        },
-        {
-          "scope": [
-            "Other"
-          ],
-          "impact": [
-            "Varies by Context"
-          ],
-          "note": "The consequences can vary widely, because it depends on which objects or methods are being deserialized, and how they are used. Making an assumption that the code in the deserialized object is valid is dangerous and can enable exploitation. One example is attackers using gadget chains to perform unauthorized actions, such as generating a shell."
-        },
-        {
-          "scope": [
-            "Confidentiality"
-          ],
-          "impact": [
-            "Read Application Data"
-          ],
-          "note": ""
-        },
-        {
-          "scope": [
-            "Integrity"
-          ],
-          "impact": [
-            "Execute Unauthorized Code or Commands"
-          ],
-          "note": ""
-        }
-      ]
+        "remote code execution",
+        "unauthorized code or command execution",
+        "information disclosure",
+        "service disruption or denial of service"
+      ],
+      "analyst_summary": "Critical network-exploitable Log4j2 log4j-core flaw with no privileges or user interaction required per CVSS. KEV listing indicates active exploitation priority, but the technical path is specifically JNDI lookup abuse via attacker-controlled logged input.",
+      "sources_used": [
+        "opencve_record",
+        "mitre_cwe_details",
+        "nvd_cpe_configurations",
+        "nvd_context",
+        "vendor_advisory_preview",
+        "patch_references",
+        "kev_required_action",
+        "vendor_followup_pages"
+      ],
+      "evidence_summary": {
+        "collected_operational_evidence": true,
+        "gate_decision": true,
+        "gate_confidence": "high",
+        "gate_rationale": "This is a library vulnerability with complex branch-specific fixed versions and operational ambiguity around affected artifact scope, upgrade targets, and vendor mitigation guidance. Extra advisory and patch context would materially improve remediation planning.",
+        "collected_vendor_followup": true,
+        "vendor_followup_decision": true,
+        "vendor_followup_rationale": "This is a widely bundled library flaw where downstream products often lag upstream fixes, so vendor advisories can materially improve product-specific remediation guidance.",
+        "highlights": [
+          "Collected 2 vendor advisory preview(s) from NVD references.",
+          "Collected 5 patch or release-note reference(s) relevant to remediation.",
+          "NVD includes a remediation-oriented KEV required action entry.",
+          "Collected deeper vendor follow-up content from 2 advisory page(s).",
+          "Vendor follow-up domains: logging.apache.org, msrc-blog.microsoft.com."
+        ]
+      }
     }
   ]
 }

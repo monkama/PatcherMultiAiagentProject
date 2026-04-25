@@ -5,7 +5,10 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from tools.tooling import tool
+try:
+    from .tooling import tool
+except ImportError:
+    from tools.tooling import tool
 
 OPENCVE_BASE_URL = "https://app.opencve.io/api"
 
