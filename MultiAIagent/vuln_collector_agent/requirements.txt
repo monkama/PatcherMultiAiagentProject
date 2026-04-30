@@ -1,0 +1,9 @@
+bedrock-agentcore
+bedrock-agentcore-starter-toolkit
+boto3
+pydantic
+openai
+python-dotenv
+opentelemetry-api
+opentelemetry-sdk
+aws-opentelemetry-distro

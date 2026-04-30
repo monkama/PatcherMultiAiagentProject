@@ -1,15 +1,14 @@
 """오케스트레이터 에이전트 — AgentCore Runtime entrypoint.
 
 전체 파이프라인 관리:
-  취약점 페이로드 수신
-    → ① asset_matching (auto_discover) : VPC 자동 탐색 + EC2 수집 → infra_context
-    → ② risk_eval                      : CVE + infra_context → 위험도 리포트
+  Step 0: vuln_collector_agent  → cve_payload + asset_matching_payload
+  Step 1: asset_matching_agent  → VPC 탐색 + EC2 수집 → infra_context
+  Step 2: risk_evaluation_agent → CVE + infra_context → 위험도 리포트
 
 호출 페이로드 스키마:
     {
-      "cve_payload":   { "records": [...] },  # 필수
-      "stack_name":    "megathon",             # 선택, 기본값 megathon
-      "region":        "ap-northeast-2"        # 선택
+      "stack_name": "megathon",      # 선택, 기본값 megathon
+      "region":     "ap-northeast-2" # 선택
     }
 """
 import json
@@ -22,12 +21,13 @@ from botocore.exceptions import ClientError
 from bedrock_agentcore import BedrockAgentCoreApp
 
 # ---------------------------------------------------------------------------
-# 설정 — AgentCore ARN 은 재배포 전까지 고정
+# 설정
 # ---------------------------------------------------------------------------
 
 DEFAULT_REGION     = os.environ.get("DEFAULT_REGION", "ap-northeast-2")
 DEFAULT_STACK_NAME = os.environ.get("CF_STACK_NAME", "megathon")
 
+VULN_COLLECTOR_ARN = os.environ.get("VULN_COLLECTOR_ARN")
 ASSET_MATCHING_ARN = os.environ.get("ASSET_MATCHING_ARN")
 RISK_EVAL_ARN      = os.environ.get("RISK_EVAL_ARN")
 
@@ -48,27 +48,6 @@ def _client(service: str, region: str):
 
 
 # ---------------------------------------------------------------------------
-# VPC 자동 발견
-# ---------------------------------------------------------------------------
-
-def _discover_vpc_id(stack_name: str, region: str) -> str:
-    """CloudFormation 스택 태그로 VPC ID 를 자동 탐색."""
-    ec2 = _client("ec2", region)
-    resp = ec2.describe_vpcs(Filters=[
-        {"Name": "tag:aws:cloudformation:stack-name", "Values": [stack_name]},
-        {"Name": "tag:aws:cloudformation:logical-id",  "Values": ["VPC"]},
-        {"Name": "state", "Values": ["available"]},
-    ])
-    vpcs = resp.get("Vpcs", [])
-    if not vpcs:
-        raise RuntimeError(
-            f"스택 '{stack_name}' 에서 VPC 를 찾을 수 없습니다. "
-            "스택이 올라와 있는지 확인해 주세요."
-        )
-    return vpcs[0]["VpcId"]
-
-
-# ---------------------------------------------------------------------------
 # 에이전트 호출 헬퍼
 # ---------------------------------------------------------------------------
 
@@ -84,7 +63,6 @@ def _invoke(arn: str, payload: dict, region: str) -> dict:
         raise RuntimeError(f"AgentCore 호출 실패 ({arn.split('/')[-1]}): {e}")
 
     raw = resp["response"].read()
-    # 응답이 JSON string 안에 JSON 이 또 들어있는 경우 두 번 파싱
     try:
         parsed = json.loads(raw)
         if isinstance(parsed, str):
@@ -107,25 +85,35 @@ def invoke(payload):
     if not ASSET_MATCHING_ARN or not RISK_EVAL_ARN:
         return {"error": "환경변수 ASSET_MATCHING_ARN, RISK_EVAL_ARN 이 설정되지 않았습니다."}
 
-    cve_payload = payload.get("cve_payload") or payload.get("vulnerability_payload")
+    cve_payload            = payload.get("cve_payload") or payload.get("vulnerability_payload")
+    asset_matching_payload = payload.get("asset_matching_payload")
+
+    # ── Step 0. vuln_collector_agent ──────────────────────────────────────
+    if VULN_COLLECTOR_ARN and not cve_payload:
+        print("[Orchestrator] Step 0: vuln_collector_agent 호출")
+        try:
+            vc_result = _invoke(VULN_COLLECTOR_ARN, {}, region)
+        except RuntimeError as e:
+            return {"error": str(e)}
+        if "error" in vc_result:
+            return {"error": f"vuln_collector 실패: {vc_result['error']}"}
+        cve_payload            = vc_result.get("cve_payload")
+        asset_matching_payload = vc_result.get("asset_matching_payload")
+        print(f"[Orchestrator] CVE payload 수신: {len((cve_payload or {}).get('records', []))}건")
+        print(f"[Orchestrator] asset_matching payload 수신: {len((asset_matching_payload or {}).get('records', []))}건")
+
     if not cve_payload:
-        return {"error": "cve_payload (또는 vulnerability_payload) 가 필요합니다."}
+        return {"error": "cve_payload 가 필요합니다. VULN_COLLECTOR_ARN 을 설정하거나 payload 에 직접 전달하세요."}
+    if not asset_matching_payload:
+        return {"error": "asset_matching_payload 가 필요합니다. VULN_COLLECTOR_ARN 을 설정하거나 payload 에 직접 전달하세요."}
 
-    # ── Step 1. VPC 자동 발견 ──────────────────────────────────────────────
-    print(f"[Orchestrator] Step 1: VPC 자동 탐색 (stack={stack_name})")
-    try:
-        vpc_id = _discover_vpc_id(stack_name, region)
-    except RuntimeError as e:
-        return {"error": str(e)}
-    print(f"[Orchestrator] VPC 발견: {vpc_id}")
-
-    # ── Step 2. asset_matching — auto_discover ─────────────────────────────
-    print("[Orchestrator] Step 2: asset_matching auto_discover 호출")
+    # ── Step 1. asset_matching — VPC 탐색 + EC2 수집 ─────────────────────
+    print(f"[Orchestrator] Step 1: asset_matching 호출 (stack={stack_name})")
     am_payload = {
-        "mode":       "auto_discover",
-        "cve_payload": cve_payload,
-        "vpc_id":     vpc_id,
-        "region":     region,
+        "mode":        "auto_discover",
+        "cve_payload":  asset_matching_payload,
+        "stack_name":   stack_name,
+        "region":       region,
         "metadata": {
             "environment":          "production",
             "business_criticality": "high",
@@ -142,12 +130,12 @@ def invoke(payload):
     infra_context = am_result.get("infra_context") or am_result
     print(f"[Orchestrator] infra_context 수신: 자산 {len(infra_context.get('assets', []))}개")
 
-    # ── Step 3. risk_eval ─────────────────────────────────────────────────
-    print("[Orchestrator] Step 3: risk_eval 호출")
+    # ── Step 2. risk_eval ─────────────────────────────────────────────────
+    print("[Orchestrator] Step 2: risk_eval 호출")
     re_payload = {
         "vulnerability_payload": cve_payload,
         "infra_context":         infra_context,
-        "asset_matching_arn":    ASSET_MATCHING_ARN,  # swarm 직접 질의용
+        "asset_matching_arn":    ASSET_MATCHING_ARN,
         "region":                region,
     }
     try:
@@ -157,11 +145,10 @@ def invoke(payload):
 
     print("[Orchestrator] 파이프라인 완료")
 
-    # ── 최종 결과 ──────────────────────────────────────────────────────────
     return {
-        "vpc_id":       vpc_id,
+        "vpc_id":        infra_context.get("vpc_id", ""),
         "infra_context": infra_context,
-        "risk_report":  re_result,
+        "risk_report":   re_result,
     }
 
 
