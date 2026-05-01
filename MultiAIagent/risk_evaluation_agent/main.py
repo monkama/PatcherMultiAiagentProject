@@ -3,12 +3,16 @@
 호출 페이로드 스키마:
     {
       "vulnerability_payload": { "records": [...] },   # 필수, risk_assessment_payloads.json 형식
-      "infra_context":         { "assets": [...], ... },# 필수, asset_matching 수집 결과
+      "infra_context":         { "assets": [...], ... },# 선택, 이미 수집된 자산 데이터
+      "vpc_id":                "vpc-...",                # 선택, infra_context 없을 때 자산매칭 자동 호출용
+      "cve_payload":           { "records": [...] },    # 선택, 자산매칭에 넘길 CVE 페이로드 (없으면 vulnerability_payload 재사용)
+      "region":                "ap-northeast-2",         # 선택, 자산매칭 호출 리전
       "asset_matching_arn":    "arn:...",                # 선택, 환경변수 ASSET_MATCHING_ARN 으로도 지정 가능
-      "region":                "ap-northeast-2"          # 선택
+      "metadata":              {...},                    # 선택, 자산매칭 호출 시 부가 메타데이터
+      "prompt":                "..."                     # 선택, 기본 프롬프트 override
     }
 
-응답: 위험도 평가 JSON (risk_report + swarm_queries)
+응답: 정제된 위험도 평가 JSON 배열 문자열.
 """
 import json
 import os
@@ -39,20 +43,23 @@ ASSET_MATCHING_ARN_ENV = "ASSET_MATCHING_ARN"
 
 app = BedrockAgentCoreApp()
 
+# 현재 invoke 의 컨텍스트 (도구 함수에서 참조)
 _runtime_state: dict = {
     "infra_context": None,
     "asset_matching_arn": None,
     "region": DEFAULT_REGION,
     "final_report": None,
-    "query_log": [],
+    "query_log": [],   # swarm 호출 기록
 }
 
+# boto3 client 캐시
 _boto3_clients: dict = {}
 
 
 def _client(service: str, region: str):
     key = (service, region)
     if key not in _boto3_clients:
+        # bedrock-agentcore 호출은 SSM 수집까지 포함해 수 분 걸릴 수 있어 타임아웃을 넉넉히 설정
         cfg = Config(read_timeout=600, connect_timeout=10) if service == "bedrock-agentcore" else None
         _boto3_clients[key] = boto3.client(service, region_name=region, config=cfg)
     return _boto3_clients[key]
@@ -83,6 +90,7 @@ class FinalReport(BaseModel):
 # ---------------------------------------------------------------------------
 
 def _invoke_asset_matching(payload: dict) -> dict:
+    """asset_matching_agent (AgentCore Runtime) 호출."""
     arn = _runtime_state.get("asset_matching_arn")
     if not arn:
         raise RuntimeError(
@@ -194,6 +202,7 @@ def _prefetch_evidence(vuln_list: list) -> dict:
         if not relevant_cves:
             continue  # 이 tier 에는 취약 소프트웨어 없음 — 스킵
 
+        # 취약 CVE 별 mitigation 항목 조합
         mitigation_items = "\n".join(
             f"  - [{cve_id}] {_CVE_MITIGATION_QUESTIONS.get(cve_id, '완화 조치 적용 여부')}"
             for cve_id in relevant_cves
@@ -245,7 +254,8 @@ def query_asset_details(instance_id: str, question: str) -> str:
 
     Args:
         instance_id: 조사 대상 EC2 인스턴스 ID (예: i-0123abcd).
-        question: 자산 매칭 에이전트에게 보낼 구체적 질문.
+        question: 자산 매칭 에이전트에게 보낼 구체적 질문
+                  (예: "log4j 의 JndiLookup mitigation 이 적용되어 있는가?").
 
     Returns:
         자산 매칭 에이전트의 답변 텍스트 (answer + confidence + evidence).
@@ -275,6 +285,7 @@ def query_asset_details(instance_id: str, question: str) -> str:
     answer = body.get("answer", "")
     confidence = body.get("confidence", "")
     evidence = body.get("evidence", [])
+    # 결과를 query_log 에 기록
     _runtime_state["query_log"][-1].update({"answer": answer[:200], "confidence": confidence})
     return (
         f"[answer]     {answer}\n"
@@ -298,6 +309,7 @@ def finalize_report(report: FinalReport):
 # ---------------------------------------------------------------------------
 
 def _ensure_infra_context(payload: dict) -> dict:
+    """payload 에서 infra_context 를 추출한다. 없으면 에러 — 오케스트레이터가 제공해야 함."""
     infra = payload.get("infra_context")
     if isinstance(infra, dict) and infra.get("assets"):
         return infra
@@ -314,11 +326,13 @@ def _ensure_infra_context(payload: dict) -> dict:
 def invoke(payload):
     payload = payload or {}
 
+    # 1) 런타임 상태 초기화
     _runtime_state["region"] = payload.get("region") or DEFAULT_REGION
     _runtime_state["asset_matching_arn"] = (
         payload.get("asset_matching_arn") or os.environ.get(ASSET_MATCHING_ARN_ENV)
     )
 
+    # 2) 입력 데이터 확보
     vuln_payload = payload.get("vulnerability_payload") or payload.get("cve_payload")
     if not vuln_payload:
         return {"error": "vulnerability_payload (또는 cve_payload) 가 필요합니다."}
@@ -330,15 +344,16 @@ def invoke(payload):
 
     _runtime_state["infra_context"] = infra_context
 
-    # refiner 로 정제
-    vuln_list  = risk_assessment_refiner.get_refined_vulnerability(vuln_payload)
+    # 3) refiner 로 정제 (dict 직접 전달)
+    vuln_list = risk_assessment_refiner.get_refined_vulnerability(vuln_payload)
     asset_info = infra_context_refiner.get_refined_asset_report(infra_context)
 
-    # 사전 증거 수집 — LLM 이 추론하지 않도록 Python 이 직접 조사
+    # 4) 사전 증거 수집 — LLM 이 추론하지 않도록 Python 이 직접 조사
     _runtime_state["query_log"] = []
     prefetch_evidence = _prefetch_evidence(vuln_list)
-    evidence_block    = _format_evidence_block(prefetch_evidence)
+    evidence_block = _format_evidence_block(prefetch_evidence)
 
+    # 5) 프롬프트 구성
     user_message = f"""
 다음 취약점과 자산 목록을 분석하여 누락 없이 전수 위험도 리포트를 작성하십시오.
 
@@ -392,7 +407,7 @@ exposure 해석:
         "calculated_risk": "CRITICAL | HIGH | MEDIUM | LOW",
         "exposure_level": "Public | Internal",
         "mitigations_found": ["적용된 완화조치 목록, 없으면 빈 배열"],
-        "risk_adjustment_reason": "사전 수집 증거 기반 조정 근거",
+        "risk_adjustment_reason": "사전 수집 증거 기반: mitigation 미적용 + root 실행으로 CRITICAL 유지",
         "remediation": "권고 조치"
       }}
     ]
@@ -402,6 +417,7 @@ exposure 해석:
 RESPONSE MUST BE A SINGLE JSON ARRAY ONLY. NO TEXT OUTSIDE THE JSON. NO LINE BREAKS INSIDE VALUES.
 """
 
+    # 6) Agent 실행 (도구: query_asset_details — 추가 조사용, finalize_report)
     _runtime_state["final_report"] = None
 
     system_prompt = (
@@ -415,12 +431,14 @@ RESPONSE MUST BE A SINGLE JSON ARRAY ONLY. NO TEXT OUTSIDE THE JSON. NO LINE BRE
 
     query_log = _runtime_state.get("query_log", [])
 
+    # 6) 결과 파싱 — finalize_report 호출 결과 우선, 없으면 텍스트에서 파싱
     if _runtime_state["final_report"] is not None:
         out = _runtime_state["final_report"]
         if isinstance(out, list):
             out = {"risk_report": out, "swarm_queries": query_log}
         return json.dumps(out, indent=4, ensure_ascii=False)
 
+    # 텍스트 응답에서 JSON 추출 시도
     try:
         content_blocks = result.message.get("content", [])
         raw_text = ""

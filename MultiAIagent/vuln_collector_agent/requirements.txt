@@ -1,9 +1,13 @@
 bedrock-agentcore
-bedrock-agentcore-starter-toolkit
 boto3
 pydantic
-openai
-python-dotenv
+typing-extensions
 opentelemetry-api
 opentelemetry-sdk
-aws-opentelemetry-distro
+opentelemetry-semantic-conventions
+opentelemetry-instrumentation
+opentelemetry-instrumentation-threading
+opentelemetry-instrumentation-logging
+watchdog
+openai
+python-dotenv

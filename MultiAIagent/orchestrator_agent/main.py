@@ -1,14 +1,15 @@
 """오케스트레이터 에이전트 — AgentCore Runtime entrypoint.
 
 전체 파이프라인 관리:
-  Step 0: vuln_collector_agent  → cve_payload + asset_matching_payload
-  Step 1: asset_matching_agent  → VPC 탐색 + EC2 수집 → infra_context
-  Step 2: risk_evaluation_agent → CVE + infra_context → 위험도 리포트
+  (선택) Step 0: vuln_collector  → cve_payload
+         Step 1: asset_matching  → VPC 탐색 + EC2 수집 → infra_context
+         Step 2: risk_eval       → CVE + infra_context → 위험도 리포트
 
 호출 페이로드 스키마:
     {
-      "stack_name": "megathon",      # 선택, 기본값 megathon
-      "region":     "ap-northeast-2" # 선택
+      "cve_payload":  { "records": [...] },  # VULN_COLLECTOR_ARN 미설정 시 필수
+      "stack_name":   "megathon",             # 선택, 기본값 megathon
+      "region":       "ap-northeast-2"        # 선택
     }
 """
 import json
@@ -27,9 +28,18 @@ from bedrock_agentcore import BedrockAgentCoreApp
 DEFAULT_REGION     = os.environ.get("DEFAULT_REGION", "ap-northeast-2")
 DEFAULT_STACK_NAME = os.environ.get("CF_STACK_NAME", "megathon")
 
-VULN_COLLECTOR_ARN = os.environ.get("VULN_COLLECTOR_ARN")
-ASSET_MATCHING_ARN = os.environ.get("ASSET_MATCHING_ARN")
-RISK_EVAL_ARN      = os.environ.get("RISK_EVAL_ARN")
+VULN_COLLECTOR_ARN = os.environ.get(
+    "VULN_COLLECTOR_ARN",
+    "arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/vuln_collector_agent-wgXroi7I0Y",
+)
+ASSET_MATCHING_ARN = os.environ.get(
+    "ASSET_MATCHING_ARN",
+    "arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/asset_matching_agent-zoDcgCEt8u",
+)
+RISK_EVAL_ARN = os.environ.get(
+    "RISK_EVAL_ARN",
+    "arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/risk_evaluation_agent-A2PkRd5CzC",
+)
 
 app = BedrockAgentCoreApp()
 
@@ -82,13 +92,10 @@ def invoke(payload):
     region     = payload.get("region", DEFAULT_REGION)
     stack_name = payload.get("stack_name", DEFAULT_STACK_NAME)
 
-    if not ASSET_MATCHING_ARN or not RISK_EVAL_ARN:
-        return {"error": "환경변수 ASSET_MATCHING_ARN, RISK_EVAL_ARN 이 설정되지 않았습니다."}
+    cve_payload             = payload.get("cve_payload") or payload.get("vulnerability_payload")
+    asset_matching_payload  = payload.get("asset_matching_payload")
 
-    cve_payload            = payload.get("cve_payload") or payload.get("vulnerability_payload")
-    asset_matching_payload = payload.get("asset_matching_payload")
-
-    # ── Step 0. vuln_collector_agent ──────────────────────────────────────
+    # ── Step 0. vuln_collector_agent (ARN 설정 시) ─────────────────────────
     if VULN_COLLECTOR_ARN and not cve_payload:
         print("[Orchestrator] Step 0: vuln_collector_agent 호출")
         try:
@@ -103,17 +110,27 @@ def invoke(payload):
         print(f"[Orchestrator] asset_matching payload 수신: {len((asset_matching_payload or {}).get('records', []))}건")
 
     if not cve_payload:
-        return {"error": "cve_payload 가 필요합니다. VULN_COLLECTOR_ARN 을 설정하거나 payload 에 직접 전달하세요."}
+        return {
+            "error": (
+                "cve_payload 가 필요합니다. "
+                "VULN_COLLECTOR_ARN 을 설정하거나 payload 에 cve_payload 를 직접 전달하세요."
+            )
+        }
     if not asset_matching_payload:
-        return {"error": "asset_matching_payload 가 필요합니다. VULN_COLLECTOR_ARN 을 설정하거나 payload 에 직접 전달하세요."}
+        return {
+            "error": (
+                "asset_matching_payload 가 필요합니다. "
+                "VULN_COLLECTOR_ARN 을 설정하거나 payload 에 asset_matching_payload 를 직접 전달하세요."
+            )
+        }
 
-    # ── Step 1. asset_matching — VPC 탐색 + EC2 수집 ─────────────────────
+    # ── Step 1. asset_matching — VPC 탐색 + EC2 수집 ──────────────────────
     print(f"[Orchestrator] Step 1: asset_matching 호출 (stack={stack_name})")
     am_payload = {
-        "mode":        "auto_discover",
-        "cve_payload":  asset_matching_payload,
-        "stack_name":   stack_name,
-        "region":       region,
+        "mode":       "auto_discover",
+        "cve_payload": asset_matching_payload,
+        "stack_name": stack_name,
+        "region":     region,
         "metadata": {
             "environment":          "production",
             "business_criticality": "high",

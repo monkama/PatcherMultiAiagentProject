@@ -21,7 +21,7 @@ from pathlib import Path
 from bedrock_agentcore import BedrockAgentCoreApp
 
 AGENT_ROOT = Path(__file__).resolve().parent
-CVE_PAYLOAD_PATH            = AGENT_ROOT / "data" / "risk_assessment_payloads.json"
+CVE_PAYLOAD_PATH           = AGENT_ROOT / "data" / "risk_assessment_payloads.json"
 ASSET_MATCHING_PAYLOAD_PATH = AGENT_ROOT / "data" / "asset_matching_payload.json"
 
 app = BedrockAgentCoreApp()
