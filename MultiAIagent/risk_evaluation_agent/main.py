@@ -113,135 +113,6 @@ def _invoke_asset_matching(payload: dict) -> dict:
         return {"error": f"asset_matching 응답 파싱 실패: {raw[:200]!r}"}
 
 
-def _raw_query(instance_id: str, asset: dict, question: str, query_type: str) -> dict:
-    """asset_matching 직접 호출 — query_log 에 기록하고 결과 반환."""
-    _runtime_state["query_log"].append({
-        "instance_id": instance_id,
-        "question": question,
-        "type": query_type,
-    })
-    body = _invoke_asset_matching({
-        "mode": "query",
-        "asset_info": asset,
-        "instance_id": instance_id,
-        "question": question,
-        "region": _runtime_state.get("region", DEFAULT_REGION),
-    })
-    if "error" in body:
-        _runtime_state["query_log"][-1]["error"] = body["error"]
-        return {"answer": f"[ERROR] {body['error']}", "confidence": "none", "evidence": []}
-    answer = body.get("answer", "")
-    confidence = body.get("confidence", "")
-    evidence = body.get("evidence", [])
-    _runtime_state["query_log"][-1].update({"answer": answer[:200], "confidence": confidence})
-    return {"answer": answer, "confidence": confidence, "evidence": evidence}
-
-
-# CVE 별 mitigation 질문 (combined query 구성용)
-_CVE_MITIGATION_QUESTIONS: dict = {
-    "CVE-2021-44228": "log4j2.formatMsgNoLookups=true 설정 적용 여부 또는 JndiLookup 클래스 jar 제거 여부",
-    "CVE-2021-23017": "nginx resolver 지시문 활성화 여부 및 실제 DNS 쿼리 처리 여부",
-}
-
-# CVE 가 영향을 미치는 소프트웨어 키워드 (tier 스킵 판단용)
-_CVE_AFFECTED_SOFTWARE: dict = {
-    "CVE-2021-44228": ["log4j"],
-    "CVE-2021-23017": ["nginx"],
-}
-
-
-def _tier_relevant_cves(asset: dict, vuln_list: list) -> list[str]:
-    """해당 asset 의 installed_software 와 CVE 영향 소프트웨어를 대조, 관련 CVE ID 목록 반환."""
-    installed = {
-        (sw.get("name") or sw.get("product") or "").lower()
-        for sw in asset.get("installed_software", [])
-    }
-    relevant = []
-    for vuln in vuln_list:
-        cve_id = vuln.get("cve_id", "")
-        keywords = _CVE_AFFECTED_SOFTWARE.get(cve_id, [])
-        if any(kw in name for kw in keywords for name in installed):
-            relevant.append(cve_id)
-    return relevant
-
-
-def _prefetch_evidence(vuln_list: list) -> dict:
-    """tier 대표 인스턴스당 1회 combined query 로 모든 필요 정보를 한꺼번에 수집.
-
-    - 취약 소프트웨어가 없는 tier 는 스킵
-    - tier 당 호출 1회 (mitigation + root + exposure 를 단일 질문으로 묶음)
-
-    반환값:
-        {
-            tier_name: {
-                "instance_id": "i-xxx",
-                "relevant_cves": ["CVE-..."],
-                "answer": "combined answer text",
-                "confidence": "high|medium|low",
-            }
-        }
-    """
-    infra = _runtime_state.get("infra_context") or {}
-    all_assets = infra.get("assets", [])
-    if not all_assets or not _runtime_state.get("asset_matching_arn"):
-        return {}
-
-    tier_rep: dict = {}
-    for asset in all_assets:
-        tier = asset.get("tier") or "unknown"
-        if tier not in tier_rep:
-            tier_rep[tier] = asset
-
-    result: dict = {}
-    for tier, asset in tier_rep.items():
-        instance_id = asset.get("asset_id")
-        if not instance_id:
-            continue
-
-        relevant_cves = _tier_relevant_cves(asset, vuln_list)
-        if not relevant_cves:
-            continue  # 이 tier 에는 취약 소프트웨어 없음 — 스킵
-
-        # 취약 CVE 별 mitigation 항목 조합
-        mitigation_items = "\n".join(
-            f"  - [{cve_id}] {_CVE_MITIGATION_QUESTIONS.get(cve_id, '완화 조치 적용 여부')}"
-            for cve_id in relevant_cves
-        )
-
-        combined_question = (
-            "아래 3가지를 한번에 답해주세요.\n\n"
-            f"[1] 취약점별 완화 조치(mitigation) 적용 여부:\n{mitigation_items}\n\n"
-            "[2] 취약 프로세스(java, nginx, apache 등)가 root 권한(UID 0)으로 실행 중입니까?\n\n"
-            "[3] 이 인스턴스에 public IP 가 할당되어 있거나 public subnet 에 위치합니까?"
-        )
-
-        response = _raw_query(instance_id, asset, combined_question, "combined_security_check")
-        result[tier] = {
-            "instance_id": instance_id,
-            "relevant_cves": relevant_cves,
-            "answer": response.get("answer", ""),
-            "confidence": response.get("confidence", ""),
-        }
-
-    return result
-
-
-def _format_evidence_block(evidence: dict) -> str:
-    """pre-fetch 결과를 프롬프트에 삽입할 텍스트로 변환."""
-    if not evidence:
-        return "(사전 조사 결과 없음 — asset_matching_arn 미설정 또는 취약 소프트웨어 없음)"
-
-    lines = []
-    for tier, info in evidence.items():
-        lines.append(
-            f"  [tier={tier} | 대표={info['instance_id']} | 관련CVE={info['relevant_cves']}]"
-        )
-        lines.append(f"    조사 결과 (신뢰도: {info.get('confidence', '?')}):")
-        for line in info.get("answer", "").splitlines():
-            lines.append(f"      {line}")
-    return "\n".join(lines)
-
-
 # ---------------------------------------------------------------------------
 # 도구
 # ---------------------------------------------------------------------------
@@ -250,17 +121,22 @@ def _format_evidence_block(evidence: dict) -> str:
 def query_asset_details(instance_id: str, question: str) -> str:
     """
     특정 EC2 인스턴스에 대해 자산 매칭 에이전트에게 추가 조사를 요청한다.
-    위험도 평가 시 자산 정보가 부족하다면 이 도구로 실시간 추가 조사를 수행한다.
+    위험도 평가에 필요한 사실이 프롬프트에 없으면 이 도구로 실시간 추가 조사를 수행한다.
+    특히 CVE별 완화 조치 적용 여부, 취약 프로세스의 root/non-root 실행 여부,
+    public/private 노출 여부, 관련 설정 파일/프로세스/포트 근거를 확인할 때 사용한다.
 
     Args:
         instance_id: 조사 대상 EC2 인스턴스 ID (예: i-0123abcd).
         question: 자산 매칭 에이전트에게 보낼 구체적 질문
-                  (예: "log4j 의 JndiLookup mitigation 이 적용되어 있는가?").
+                  (예: "CVE-2021-44228에 대해 log4j2.formatMsgNoLookups 설정 또는
+                  JndiLookup 제거 여부, java root 실행 여부, public 노출 여부를
+                  명령 출력 근거와 함께 확인해 달라.").
 
     Returns:
         자산 매칭 에이전트의 답변 텍스트 (answer + confidence + evidence).
     """
-    _runtime_state["query_log"].append({"instance_id": instance_id, "question": question})
+    log_entry = {"instance_id": instance_id, "question": question}
+    _runtime_state["query_log"].append(log_entry)
 
     infra = _runtime_state.get("infra_context") or {}
     assets = infra.get("assets") if isinstance(infra, dict) else None
@@ -272,21 +148,31 @@ def query_asset_details(instance_id: str, question: str) -> str:
         ids = ", ".join(a.get("asset_id", "") for a in assets)
         return f"[ERROR] {instance_id} 자산 미존재. 가능한 ID: {ids}"
 
-    body = _invoke_asset_matching({
-        "mode": "query",
-        "asset_info": asset,
-        "instance_id": instance_id,
-        "question": question,
-        "region": _runtime_state.get("region", DEFAULT_REGION),
-    })
+    try:
+        body = _invoke_asset_matching({
+            "mode": "query",
+            "asset_info": asset,
+            "instance_id": instance_id,
+            "question": question,
+            "region": _runtime_state.get("region", DEFAULT_REGION),
+        })
+    except Exception as exc:  # noqa: BLE001
+        error = f"{type(exc).__name__}: {exc}"
+        log_entry.update({"error": error, "confidence": "none"})
+        return f"[ERROR] asset_matching query failed: {error}"
+
+    if not isinstance(body, dict):
+        log_entry.update({"error": "asset_matching response was not a JSON object", "confidence": "none"})
+        return f"[ERROR] asset_matching 응답이 JSON object가 아닙니다: {str(body)[:200]}"
 
     if "error" in body:
+        log_entry.update({"error": body["error"], "confidence": "none"})
         return f"[ERROR] {body['error']}"
     answer = body.get("answer", "")
     confidence = body.get("confidence", "")
     evidence = body.get("evidence", [])
     # 결과를 query_log 에 기록
-    _runtime_state["query_log"][-1].update({"answer": answer[:200], "confidence": confidence})
+    log_entry.update({"answer": answer[:200], "confidence": confidence})
     return (
         f"[answer]     {answer}\n"
         f"[confidence] {confidence}\n"
@@ -297,7 +183,12 @@ def query_asset_details(instance_id: str, question: str) -> str:
 @tool
 def finalize_report(report: FinalReport):
     """위험도 평가가 완전히 끝났을 때 최종 리포트를 저장한다."""
-    data = report.dict()
+    if hasattr(report, "model_dump"):
+        data = report.model_dump()
+    elif hasattr(report, "dict"):
+        data = report.dict()
+    else:
+        data = dict(report)
     _runtime_state["final_report"] = data
     with open("risk_evaluation_result.json", "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
@@ -348,10 +239,8 @@ def invoke(payload):
     vuln_list = risk_assessment_refiner.get_refined_vulnerability(vuln_payload)
     asset_info = infra_context_refiner.get_refined_asset_report(infra_context)
 
-    # 4) 사전 증거 수집 — LLM 이 추론하지 않도록 Python 이 직접 조사
+    # 4) Agent 가 부족한 사실을 직접 판단해 query_asset_details 를 호출하도록 로그만 초기화한다.
     _runtime_state["query_log"] = []
-    prefetch_evidence = _prefetch_evidence(vuln_list)
-    evidence_block = _format_evidence_block(prefetch_evidence)
 
     # 5) 프롬프트 구성
     user_message = f"""
@@ -361,18 +250,26 @@ def invoke(payload):
 - 취약점 목록   : {json.dumps(vuln_list, ensure_ascii=False)}
 - 자산 목록     : {json.dumps(asset_info, ensure_ascii=False)}
 
-# 사전 수집된 실측 증거 (asset_matching 에이전트가 실제 인스턴스를 조사한 결과)
-아래 데이터는 추론이 아닌 실제 조사 결과입니다. 반드시 이 데이터를 우선 사용하십시오.
-같은 tier 내 다른 인스턴스에는 대표 인스턴스의 조사 결과를 동일하게 적용하십시오.
-
-{evidence_block}
-
 # STEP 1 — 취약 자산 식별
 각 CVE 가 영향을 미치는 소프트웨어를 자산 목록의 installed_software 와 대조하여 취약 인스턴스를 찾으십시오.
 
-# STEP 2 — 위험도 결정 (위의 사전 수집 증거 사용)
-위에서 사전 수집한 실측 증거를 기반으로 아래 규칙을 적용하십시오.
-추가로 불명확한 사항이 있으면 query_asset_details 도구로 추가 조사할 수 있습니다.
+# STEP 2 — 부족한 런타임 사실 확인
+자산 목록은 후보 식별용 요약입니다. mitigation 적용 여부, root/non-root 실행 여부,
+public/private 노출 여부는 이 요약만으로 확정하지 마십시오.
+
+최종 JSON을 작성하기 전에, impacted_assets 에 포함할 모든 CVE-자산 조합에 대해
+반드시 query_asset_details(instance_id, question) 도구를 최소 1회 호출해 asset_matching_agent 에 확인하십시오.
+도구를 호출하지 않은 자산은 impacted_assets 에 포함하지 마십시오.
+
+각 도구 호출은 아래 사실을 모두 확인해야 합니다.
+- CVE별 완화 조치 또는 우회 조치가 실제로 적용되어 있는지
+- 취약 소프트웨어 또는 관련 프로세스가 root 권한으로 실행 중인지
+- 자산이 public IP, public subnet, internet-facing port 등으로 외부 노출되어 있는지
+- 판단 근거가 된 설정 파일, 프로세스, 포트, 명령 출력이 무엇인지
+
+도구 질문은 한 인스턴스에 대해 가능한 한 통합해서 묻되, CVE와 확인할 항목을 구체적으로 적으십시오.
+도구 호출이 실패하면 실패 사실을 risk_adjustment_reason 에 기록하고, 해당 조건은 추측하지 말고 unknown 또는 보수적 판단으로 남기십시오.
+risk_adjustment_reason 에는 반드시 asset agent 응답의 answer/confidence/evidence 중 실제 확인된 내용을 반영하십시오.
 
 mitigation 적용 여부 해석:
 - "적용됨" / "yes" / "설정 확인됨" → mitigations_found 에 기록, risk 2단계 하향
@@ -407,7 +304,7 @@ exposure 해석:
         "calculated_risk": "CRITICAL | HIGH | MEDIUM | LOW",
         "exposure_level": "Public | Internal",
         "mitigations_found": ["적용된 완화조치 목록, 없으면 빈 배열"],
-        "risk_adjustment_reason": "사전 수집 증거 기반: mitigation 미적용 + root 실행으로 CRITICAL 유지",
+        "risk_adjustment_reason": "asset agent 확인 결과: mitigation 미적용 + root 실행 + Public 노출로 CRITICAL 유지. evidence: ...",
         "remediation": "권고 조치"
       }}
     ]
@@ -417,17 +314,24 @@ exposure 해석:
 RESPONSE MUST BE A SINGLE JSON ARRAY ONLY. NO TEXT OUTSIDE THE JSON. NO LINE BREAKS INSIDE VALUES.
 """
 
-    # 6) Agent 실행 (도구: query_asset_details — 추가 조사용, finalize_report)
+    # 6) Agent 실행 (도구: query_asset_details — 추가 조사용)
     _runtime_state["final_report"] = None
 
     system_prompt = (
         "당신은 CVE 취약점 지식을 보유한 보안 위험도 평가 전문가입니다. "
-        "프롬프트에 '사전 수집된 실측 증거' 블록이 제공됩니다. "
-        "이 데이터는 추론이 아닌 실제 인스턴스 조사 결과이므로 반드시 우선 사용하십시오. "
-        "추가 조사가 필요하면 query_asset_details 도구를 활용할 수 있습니다."
+        "입력의 자산 목록은 후보 식별용 요약이며 mitigation, root 실행, 외부 노출 같은 "
+        "런타임 사실을 확정하기에 충분하지 않을 수 있습니다. "
+        "최종 impacted_assets 에 포함할 모든 CVE-자산 조합은 반드시 query_asset_details 도구로 "
+        "asset_matching_agent 에 확인한 뒤 판단하십시오. 도구를 호출하지 않은 자산은 최종 결과에 포함하지 마십시오. "
+        "도구 응답의 answer, confidence, evidence 를 risk_adjustment_reason 에 반영하고, "
+        "도구 실패 시에는 추측하지 말고 실패와 불확실성을 기록하십시오."
     )
-    agent = Agent(model=BEDROCK_MODEL_ID, system_prompt=system_prompt)
-    result = agent(user_message, tools=[query_asset_details, finalize_report])
+    agent = Agent(
+        model=BEDROCK_MODEL_ID,
+        system_prompt=system_prompt,
+        tools=[query_asset_details],
+    )
+    result = agent(user_message)
 
     query_log = _runtime_state.get("query_log", [])
 

@@ -8,6 +8,12 @@ AWS 인프라의 CVE 취약점을 자동 수집하고, 실제 자산 런타임 �
 
 ## 전체 파이프라인 구조
 
+팀원이 새 로컬 환경에서 실행할 때 필요한 `.env`, `.venv`, 배포 CLI 준비 절차는 [docs/team_setup.md](docs/team_setup.md)를 기준으로 맞춥니다.
+
+현재 기본 흐름은 아래와 같습니다.
+
+```text
+vuln_collector -> asset_matching -> risk_evaluation -> patch_impact
 ```
 사용자 호출: { "stack_name": "megathon" }
         │
@@ -45,11 +51,11 @@ AWS 인프라의 CVE 취약점을 자동 수집하고, 실제 자산 런타임 �
 ┌─────────────────────────────────────────┐
 │        risk_evaluation_agent            │
 │                                         │
-│  1. tier별 대표 인스턴스에 combined     │
-│     query (asset_matching 재질의)       │
-│  2. mitigation / root 권한 / 네트워크   │
-│     노출 실측 데이터 수집               │
-│  3. CVSS base score + 조정 규칙 적용    │
+│  1. CVE별 영향 후보 자산 식별          │
+│  2. query_asset_details tool로          │
+│     asset_matching_agent에 직접 질의    │
+│  3. mitigation / root 권한 / 네트워크   │
+│     노출 확인 후 CVSS 조정              │
 │                                         │
 │  반환: 위험도 리포트                    │
 └─────────────────────────────────────────┘

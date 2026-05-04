@@ -11,34 +11,16 @@ class AssetRiskAnalyzer:
         self.assets = asset_data.get("assets", [])
 
     def extract_critical_assets(self) -> List[Dict]:
-        """자산 데이터를 분석하여 SOC 관점 위험 가중치를 계산하고 정렬된 리스트 반환."""
+        """자산 데이터를 후보 식별용 최소 요약으로 정제한다.
+
+        public exposure, root process 같은 런타임 위험 조건은 risk agent 가
+        query_asset_details 도구로 직접 확인하도록 프롬프트 입력에서 숨긴다.
+        """
         refined_assets = []
 
         for asset in self.assets:
             metadata = asset.get("metadata", {})
-            sec_context = asset.get("security_context", {})
 
-            risk_score = 0
-            risk_factors = []
-
-            # 1. 인터넷 노출 점수 (40점)
-            is_public = asset.get("public_ip") or metadata.get("network_exposure") == "public"
-            if is_public:
-                risk_score += 40
-                risk_factors.append("Internet Facing (Public)")
-
-            # 2. 권한 남용 위험 점수 (30점)
-            root_procs = sec_context.get("running_as_root", [])
-            if root_procs:
-                risk_score += 30
-                risk_factors.append(f"Root Process: {', '.join(root_procs)}")
-
-            # 3. 비즈니스 중요도 점수 (20점)
-            if metadata.get("business_criticality") == "high":
-                risk_score += 20
-                risk_factors.append("Business Criticality: High")
-
-            # 4. 소프트웨어 취약성 점수 (10점)
             software_list = [
                 {
                     "product": sw.get("product"),
@@ -47,23 +29,18 @@ class AssetRiskAnalyzer:
                 }
                 for sw in asset.get("installed_software", [])
             ]
-            if software_list:
-                risk_score += 10
 
             refined_assets.append({
                 "asset_id": asset.get("asset_id"),
                 "hostname": asset.get("hostname"),
                 "tier": asset.get("tier"),
                 "private_ip": asset.get("private_ip"),
-                "public_ip": asset.get("public_ip"),
-                "risk_score": risk_score,
-                "risk_factors": risk_factors,
                 "vulnerable_software": software_list,
                 "os_info": asset.get("os_info", {}),
-                "is_public": is_public,
+                "business_criticality": metadata.get("business_criticality", "unknown"),
             })
 
-        return sorted(refined_assets, key=lambda x: x["risk_score"], reverse=True)
+        return refined_assets
 
 
 def get_refined_asset_report(source: Optional[Union[dict, str]] = None):
@@ -105,4 +82,4 @@ if __name__ == "__main__":
     print("--- 인프라 데이터 정제 테스트 시작 ---")
     test_results = get_refined_asset_report()
     for res in test_results[:2]:
-        print(f"ID: {res['asset_id']} | Score: {res['risk_score']} | Factors: {res['risk_factors']}")
+        print(f"ID: {res['asset_id']} | Tier: {res['tier']} | Software: {res['vulnerable_software']}")
