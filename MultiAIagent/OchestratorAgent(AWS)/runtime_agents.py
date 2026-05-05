@@ -19,6 +19,7 @@ ASSET_OUTPUT_DIR = OUTPUT_ROOT / "AssetAgent"
 VULN_OUTPUT_DIR = OUTPUT_ROOT / "VulAgent"
 RISK_OUTPUT_DIR = OUTPUT_ROOT / "RiskevalAgent"
 PATCH_OUTPUT_DIR = OUTPUT_ROOT / "PatchImAgent"
+PATCH_EXEC_OUTPUT_DIR = OUTPUT_ROOT / "PatchExecAgent"
 SWARM_OUTPUT_DIR = OUTPUT_ROOT / "SwarmAgent"
 
 ASSET_INFRA_CONTEXT_PATH = ASSET_OUTPUT_DIR / "infra_context.json"
@@ -30,6 +31,7 @@ RISK_RESULT_PATH = RISK_OUTPUT_DIR / "risk_evaluation_result.json"
 PATCH_PRE_RESULT_PATH = PATCH_OUTPUT_DIR / "stage1_prejudge" / "patch_impact_prejudge_result.json"
 PATCH_FOLLOWUP_REQUEST_PATH = PATCH_OUTPUT_DIR / "stage2_followup" / "additional_asset_request.json"
 PATCH_FINAL_RESULT_PATH = PATCH_OUTPUT_DIR / "stage3_final" / "patch_impact_final_result.json"
+PATCH_EXEC_RESULT_PATH = PATCH_EXEC_OUTPUT_DIR / "patch_execution_result.json"
 PATCH_FOLLOWUP_RESULT_PATH = SWARM_OUTPUT_DIR / "additional_asset_response.json"
 
 DEFAULT_REGION = "ap-northeast-2"
@@ -52,6 +54,10 @@ DEFAULT_PATCH_IMPACT_RUNTIME_ARN = (
     "arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/"
     "patch_impact_container-qNIi2mCjRa"
 )
+DEFAULT_PATCH_EXECUTION_RUNTIME_ARN = (
+    "arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/"
+    "patch_agent-tv3CWxBmLK"
+)
 
 INFRA_MATCHING_RUNTIME_ARN_ENV_KEYS = (
     "INFRA_MATCHING_AGENTCORE_ARN",
@@ -69,6 +75,10 @@ RISK_EVAL_RUNTIME_ARN_ENV_KEYS = (
 PATCH_IMPACT_RUNTIME_ARN_ENV_KEYS = (
     "PATCH_IMPACT_AGENTCORE_ARN",
     "PATCH_IMPACT_ARN",
+)
+PATCH_EXECUTION_RUNTIME_ARN_ENV_KEYS = (
+    "PATCH_EXECUTION_AGENTCORE_ARN",
+    "PATCH_EXECUTION_ARN",
 )
 
 _CLIENT_CACHE: dict[str, Any] = {}
@@ -153,6 +163,14 @@ def _resolve_patch_impact_runtime_arn(payload: dict[str, Any]) -> str:
         ("patch_impact_runtime_arn", "patch_runtime_arn"),
         PATCH_IMPACT_RUNTIME_ARN_ENV_KEYS,
         DEFAULT_PATCH_IMPACT_RUNTIME_ARN,
+    )
+
+def _resolve_patch_execution_runtime_arn(payload: dict[str, Any]) -> str:
+    return _resolve_runtime_arn(
+        payload,
+        ("patch_execution_runtime_arn", "execution_runtime_arn"),
+        PATCH_EXECUTION_RUNTIME_ARN_ENV_KEYS,
+        DEFAULT_PATCH_EXECUTION_RUNTIME_ARN,
     )
 
 
@@ -488,11 +506,41 @@ def run_patch_impact_agent(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def run_patch_execution_agent(payload: dict[str, Any]) -> dict[str, Any]:
+    runtime_arn = _resolve_patch_execution_runtime_arn(payload)
+    if not runtime_arn:
+        raise RuntimeError("PATCH_EXECUTION_ARN 설정이 필요합니다.")
+
+    action = str(payload.get("action") or "execute_patch").strip().lower()
+    region = str(payload.get("region") or DEFAULT_REGION)
+    
+    remote_result = _invoke_agentcore_runtime(runtime_arn, payload, region)
+    
+    if "error" in remote_result:
+        raise RuntimeError(f"patch_execution_agent 호출 실패: {remote_result['error']}")
+
+    local_result = remote_result.get("result") if isinstance(remote_result.get("result"), dict) else remote_result
+
+    save_path = Path(payload.get("save_path") or PATCH_EXEC_RESULT_PATH)
+    _write_json(save_path, local_result)
+
+    return {
+        "agent": "patch_execution_agent",
+        "action": action,
+        "status": "ok",
+        "backend": "agentcore_runtime",
+        "runtime_arn": runtime_arn,
+        "result_path": str(save_path),
+        "result": local_result,
+    }
+
+
 AGENT_REGISTRY: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "infra_matching_agent": run_infra_matching_agent,
     "vuln_collector_agent": run_vuln_collector_agent,
     "risk_evaluation_agent": run_risk_evaluation_agent,
     "patch_impact_agent": run_patch_impact_agent,
+    "patch_execution_agent": run_patch_execution_agent,
 }
 
 

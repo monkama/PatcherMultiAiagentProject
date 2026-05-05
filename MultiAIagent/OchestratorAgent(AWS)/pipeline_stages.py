@@ -14,6 +14,7 @@ ASSET_OUTPUT_DIR = RUNTIME_ROOT / "OutputResult" / "AssetAgent"
 VULN_OUTPUT_DIR = RUNTIME_ROOT / "OutputResult" / "VulAgent"
 RISK_OUTPUT_DIR = RUNTIME_ROOT / "OutputResult" / "RiskevalAgent"
 PATCH_OUTPUT_DIR = RUNTIME_ROOT / "OutputResult" / "PatchImAgent"
+PATCH_EXEC_OUTPUT_DIR = RUNTIME_ROOT / "OutputResult" / "PatchExecAgent"
 SWARM_OUTPUT_DIR = RUNTIME_ROOT / "OutputResult" / "SwarmAgent"
 
 PIPELINE_RESULT_PATH = SWARM_OUTPUT_DIR / "pipeline_result.json"
@@ -27,6 +28,7 @@ VULN_RISK_PAYLOAD_PATH = VULN_OUTPUT_DIR / "risk_assessment_payloads.json"
 VULN_OPERATIONAL_PAYLOAD_PATH = VULN_OUTPUT_DIR / "operational_impact_payloads.json"
 VULN_ASSET_MATCHING_PAYLOAD_PATH = VULN_OUTPUT_DIR / "asset_matching_payload.json"
 RISK_RESULT_PATH = RISK_OUTPUT_DIR / "risk_evaluation_result.json"
+PATCH_EXEC_RESULT_PATH = PATCH_EXEC_OUTPUT_DIR / "patch_execution_result.json"
 
 
 def _utc_now() -> str:
@@ -188,4 +190,30 @@ def run_patch_finalize_stage(
         "stage": "patch_final",
         "generated_at": _utc_now(),
         "patch_final_stage": patch_final_stage,
+    }
+
+def run_patch_execution_stage(
+    *,
+    region: str,
+    prompt: str | None = None,
+    impact_data: dict[str, Any] | None = None,
+    patch_execution_runtime_arn: str | None = None,
+) -> dict[str, Any]:
+
+    resolved_impact_data = impact_data if isinstance(impact_data, dict) else _load_json(PATCH_FINAL_RESULT_PATH, {})
+    
+    patch_execution_stage = run_agent("patch_execution_agent", {
+        "action": "execute_patch",
+        "region": region,
+        "prompt": prompt or "보안 패치 분석 및 자동 실행",
+        "impact_data": resolved_impact_data,
+        "patch_execution_runtime_arn": patch_execution_runtime_arn,
+        "save_path": str(PATCH_EXEC_RESULT_PATH),
+    })
+
+    return {
+        "agent": "orchestrator_pipeline",
+        "stage": "patch_execution",
+        "generated_at": _utc_now(),
+        "patch_execution_stage": patch_execution_stage,
     }

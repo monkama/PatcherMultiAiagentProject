@@ -31,6 +31,9 @@ DEFAULT_ORCHESTRATOR_ARN = (
 DEFAULT_PATCH_IMPACT_ARN = (
     "arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/patch_impact_container-qNIi2mCjRa"
 )
+DEFAULT_PATCH_EXECUTION_ARN = (
+    "arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/patch_agent-tv3CWxBmLK"
+)
 DEFAULT_READ_TIMEOUT = 900
 DEFAULT_CONNECT_TIMEOUT = 10
 
@@ -50,6 +53,7 @@ STOP_STAGE_OPTIONS = {
     "4": "patch_pre",
     "5": "patch_followup",
     "6": "patch_final",
+    "7": "patch_execution",
 }
 
 VULN_RESULT_FILENAMES = {
@@ -78,7 +82,7 @@ def _print_usage_guide() -> None:
     print(
         "[모드 설명]\n"
         "1. full\n"
-        "   vuln -> asset -> risk -> patch 전체 실행\n"
+        "   vuln -> asset -> risk -> patch -> patch_execution 전체 실행\n"
         "2. vuln_only\n"
         "   취약점 수집 에이전트만 실행\n"
         "3. asset_only\n"
@@ -290,6 +294,12 @@ def _default_input_path(key: str) -> Path | None:
             REPO_ROOT / "vuln_runtime_result" / "focused_selected_raw_cves.json",
             PROJECT_ROOT / "OutputResult" / "VulAgent" / "focused_selected_raw_cves.json",
         ])
+    if key == "patch_final_result":
+        return _first_existing([
+            latest_root / "patch_impact_agent" / "latest" / "patch_impact_final_result.json",
+            _latest_from_dir(latest_root / "patch_impact_agent", "patch_impact_final_result.json"),
+            PROJECT_ROOT / "OutputResult" / "PatchImAgent" / "stage3_final" / "patch_impact_final_result.json",
+        ])
     return None
 
 
@@ -337,6 +347,12 @@ def _build_payload_interactively() -> tuple[dict[str, Any], str]:
     elif mode == "test":
         stop_stage = _choose_stop_stage()
         payload["stop_stage"] = stop_stage
+
+        if stop_stage in {"patch_execution"}:
+            patch_exec_runtime_arn = _prompt_optional_runtime_arn("Patch Execution runtime ARN", os.environ.get("PATCH_EXECUTION_ARN") or DEFAULT_PATCH_EXECUTION_ARN)
+            if patch_exec_runtime_arn:
+                payload["patch_execution_runtime_arn"] = patch_exec_runtime_arn
+
         if stop_stage in {"patch_pre", "patch_followup", "patch_final"}:
             patch_runtime_arn = _prompt_optional_runtime_arn("Patch runtime ARN", os.environ.get("PATCH_IMPACT_ARN") or DEFAULT_PATCH_IMPACT_ARN)
             if patch_runtime_arn:
@@ -362,6 +378,11 @@ def _build_payload_interactively() -> tuple[dict[str, Any], str]:
             followup_result = _prompt_json_file("followup_result", "followup_result", required=False)
             if followup_result is not None:
                 test_inputs["followup_result"] = followup_result
+
+        elif stop_stage == "patch_execution":
+            test_inputs["patch_final_result"] = _prompt_json_file("patch_final_result", "patch_final_result", required=True)
+            payload["prompt"] = _prompt_with_default("패치 실행 프롬프트 (기본값)", "보안 패치 분석 및 자동 실행")
+
         payload["test_inputs"] = test_inputs
 
     return payload, label
@@ -523,6 +544,12 @@ def _save_result_bundle(result: dict[str, Any], request_payload: dict[str, Any],
         if "result" in patch_final_stage:
             _save_named_json("patch_impact_agent", run_tag, "patch_impact_final_result.json", patch_final_stage.get("result"))
 
+    patch_execution_stage = result.get("patch_execution_stage") if isinstance(result.get("patch_execution_stage"), dict) else None
+    if patch_execution_stage:
+        _save_stage_wrapper("patch_execution_agent", run_tag, {"stage": "patch_execution", **patch_execution_stage})
+        if "result" in patch_execution_stage:
+            _save_named_json("patch_execution_agent", run_tag, "patch_execution_result.json", patch_execution_stage.get("result"))
+
     summary = {
         "run_tag": run_tag,
         "mode": mode,
@@ -536,6 +563,7 @@ def _save_result_bundle(result: dict[str, Any], request_payload: dict[str, Any],
             "patch_impact_agent": str(RESULT_ROOT / "patch_impact_agent" / run_tag)
             if any(stage is not None for stage in (patch_pre_stage, followup_stage, patch_final_stage))
             else None,
+            "patch_execution_agent": str(RESULT_ROOT / "patch_execution_agent" / run_tag) if patch_execution_stage else None,
         },
     }
     _save_named_json(orchestrator_agent_name, run_tag, "summary.json", summary)

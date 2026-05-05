@@ -12,12 +12,14 @@ from pipeline_stages import (
     PATCH_FOLLOWUP_RESULT_PATH,
     PATCH_PRE_RESULT_PATH,
     PIPELINE_RESULT_PATH,
+    PATCH_EXEC_RESULT_PATH,
     run_asset_stage,
     run_patch_finalize_stage,
     run_patch_followup_stage,
     run_patch_pre_stage,
     run_risk_stage,
     run_vuln_stage,
+    run_patch_execution_stage,
 )
 
 
@@ -32,6 +34,7 @@ STAGE_ORDER = {
     "patch_pre": 4,
     "patch_followup": 5,
     "patch_final": 6,
+    "patch_execution": 7,
 }
 
 def _utc_now() -> str:
@@ -189,6 +192,19 @@ def _seed_state(payload: dict[str, Any]) -> dict[str, Any]:
                 "result": patch_final_stage,
             }
 
+    patch_execution_stage = _pick_payload_value(payload, "patch_execution_stage") or _pick_payload_value(payload, "patch_execution_result")
+    if isinstance(patch_execution_stage, dict):
+        if isinstance(patch_execution_stage.get("patch_execution_stage"), dict):
+            state["patch_execution_stage"] = patch_execution_stage["patch_execution_stage"]
+        elif "result" in patch_execution_stage:
+            state["patch_execution_stage"] = patch_execution_stage
+        else:
+            state["patch_execution_stage"] = {
+                "agent": "patch_execution_agent",
+                "status": "injected",
+                "result": patch_execution_stage,
+            }
+
     return state
 
 
@@ -234,6 +250,7 @@ def _build_pipeline_result(state: dict[str, Any], config: dict[str, Any], agent_
         "patch_impact_agent_stage1" if state.get("patch_pre_stage") else None,
         "patch_impact_agent_followup" if state.get("followup_stage") else None,
         "patch_impact_agent_stage3" if state.get("patch_final_stage") else None,
+        "patch_execution_agent" if state.get("patch_execution_stage") else None,
     ]
     result = {
         "agent": "orchestrator_agent",
@@ -250,6 +267,7 @@ def _build_pipeline_result(state: dict[str, Any], config: dict[str, Any], agent_
             "asset_to_patch": ["infra_context"],
             "vuln_to_patch": ["operational_impact_payload"],
             "risk_to_patch": ["risk_evaluation_result"],
+            "patch_final_to_execution": ["patch_final_stage.result"],
         },
         "agent_message": agent_message,
         "vuln_stage": state.get("vuln_stage"),
@@ -258,11 +276,13 @@ def _build_pipeline_result(state: dict[str, Any], config: dict[str, Any], agent_
         "patch_pre_stage": state.get("patch_pre_stage"),
         "followup_stage": state.get("followup_stage"),
         "patch_final_stage": state.get("patch_final_stage"),
+        "patch_execution_stage": state.get("patch_execution_stage"),
         "artifacts": {
             "patch_pre_path": str(PATCH_PRE_RESULT_PATH),
             "patch_followup_request_path": str(PATCH_FOLLOWUP_REQUEST_PATH),
             "patch_followup_response_path": str(PATCH_FOLLOWUP_RESULT_PATH),
             "patch_final_path": str(PATCH_FINAL_RESULT_PATH),
+            "patch_execution_path": str(PATCH_EXEC_RESULT_PATH),
             "pipeline_result_path": str(PIPELINE_RESULT_PATH),
         },
         "test_interface": {
@@ -477,6 +497,15 @@ def run_orchestrator(payload: dict[str, Any]) -> dict[str, Any]:
             additional_asset_context=state.get("followup_stage"),
             patch_impact_runtime_arn=config["patch_impact_runtime_arn"],
         )["patch_final_stage"]
+    if stop_stage == "patch_final":
+        return _build_pipeline_result(state, config, "patch_final 단계까지 실행 완료")
+    
+    if _should_execute(stop_stage, "patch_execution") and "patch_execution_stage" not in state:
+        state["patch_execution_stage"] = run_patch_execution_stage(
+            region=config["region"],
+            prompt=payload.get("prompt"),
+            impact_data=state.get("patch_final_stage", {}).get("result"),
+        )["patch_execution_stage"]
 
     return _build_pipeline_result(state, config, "full/test 모드 실행 완료")
 
