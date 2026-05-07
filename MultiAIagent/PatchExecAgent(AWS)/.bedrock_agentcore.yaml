@@ -304,12 +304,12 @@ agents:
     name: patch_agent
     language: python
     node_version: '20'
-    entrypoint: /Users/hwan/Desktop/patch_agent/main.py
+    entrypoint: /Users/hwan/PatcherMultiAiagentProject/MultiAIagent/PatchExecAgent(AWS)/runtime_app.py
     deployment_type: container
     runtime_type: null
     platform: linux/arm64
     container_runtime: none
-    source_path: /Users/hwan/Desktop/patch_agent
+    source_path: /Users/hwan/PatcherMultiAiagentProject/MultiAIagent/PatchExecAgent(AWS)
     aws:
       execution_role: arn:aws:iam::842337469411:role/megathon_patch_agent_role
       execution_role_auto_create: false
@@ -332,7 +332,7 @@ agents:
     bedrock_agentcore:
       agent_id: patch_agent-tv3CWxBmLK
       agent_arn: arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/patch_agent-tv3CWxBmLK
-      agent_session_id: 9ad2c345-afb8-4803-8d3e-fa2427e07747
+      agent_session_id: null
     codebuild:
       project_name: bedrock-agentcore-patch_agent-builder
       execution_role: arn:aws:iam::842337469411:role/AmazonBedrockAgentCoreSDKCodeBuild-ap-northeast-2-7de5e4ef39

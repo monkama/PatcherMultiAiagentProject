@@ -26,7 +26,7 @@ from pipeline_stages import (
 MODULE_ROOT = Path(__file__).resolve().parent
 PROJECT_ROOT = MODULE_ROOT.parent.parent
 DEFAULT_STACK_NAME = os.environ.get("CF_STACK_NAME", "megathon")
-VALID_MODES = {"full", "vuln_only", "asset_only", "risk_only", "patch_only", "test"}
+VALID_MODES = {"full", "vuln_only", "asset_only", "risk_only", "patch_only", "test", "patch_exec_only"}
 STAGE_ORDER = {
     "vuln": 1,
     "asset": 2,
@@ -63,7 +63,7 @@ def _resolve_mode(payload: dict[str, Any]) -> str:
     }
     mode = aliases.get(raw_mode, raw_mode)
     if mode not in VALID_MODES:
-        raise ValueError("mode 는 full | vuln_only | asset_only | risk_only | patch_only | test 중 하나여야 합니다.")
+        raise ValueError("mode 는 full | vuln_only | asset_only | risk_only | patch_only | test | patch_exec_only 중 하나여야 합니다.")
     return mode
 
 
@@ -424,6 +424,24 @@ def run_patch_only(payload: dict[str, Any]) -> dict[str, Any]:
     )["patch_final_stage"]
     return _build_pipeline_result(state, config, "patch_only 모드 실행 완료")
 
+def run_patch_exec_only(payload: dict[str, Any]) -> dict[str, Any]:
+    config = _build_config(payload)
+    state = _seed_state(payload)
+    config["injected_state"] = list(state.keys())
+
+    # 클라이언트가 보낸 최종 영향도 데이터 추출
+    impact_data = _pick_payload_value(payload, "patch_final_result")
+    if not impact_data:
+        raise ValueError("patch_exec_only 모드에서는 patch_final_result 가 필요합니다.")
+
+    # 패치 실행 에이전트 단독 호출
+    state["patch_execution_stage"] = run_patch_execution_stage(
+        region=config["region"],
+        prompt=payload.get("prompt", "보안 패치 분석 및 자동 실행"),
+        impact_data=impact_data,
+    )["patch_execution_stage"]
+
+    return _build_pipeline_result(state, config, "patch_exec_only 모드 실행 완료")
 
 def run_orchestrator(payload: dict[str, Any]) -> dict[str, Any]:
     config = _build_config(payload)
@@ -522,4 +540,7 @@ def invoke(payload: dict[str, Any]) -> dict[str, Any]:
         return run_risk_only(payload)
     if mode == "patch_only":
         return run_patch_only(payload)
+    if mode == "patch_exec_only":
+        return run_patch_exec_only(payload)
     return run_orchestrator(payload)
+

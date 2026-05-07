@@ -44,6 +44,7 @@ MODE_OPTIONS = {
     "4": ("risk_only", "위험 평가만"),
     "5": ("patch_only", "패치 영향도만"),
     "6": ("test", "중간 단계 주입 테스트"),
+    "7": ("patch_exec_only", "패치 실행만"),
 }
 
 STOP_STAGE_OPTIONS = {
@@ -100,6 +101,9 @@ def _print_usage_guide() -> None:
         "6. test\n"
         "   중간 단계 주입 테스트\n"
         "   stop_stage 를 고르고, 그 단계에 필요한 JSON만 넣으면 됩니다.\n"
+        "7. patch_exec_only\n"  
+        "   패치 실행 에이전트만 단독으로 실행\n"
+        "   필요 입력: patch_impact_final_result.json\n"
     )
     print(
         "[빠른 예시]\n"
@@ -344,6 +348,15 @@ def _build_payload_interactively() -> tuple[dict[str, Any], str]:
         payload["risk_result"] = _prompt_json_file("risk_result", "risk_result", required=True)
         payload["operational_payload"] = _prompt_json_file("operational_payload", "operational_payload", required=True)
         payload["allow_followup"] = _prompt_yes_no("follow-up 질문까지 실행할까요?", default=True)
+
+    elif mode == "patch_exec_only":
+        patch_exec_runtime_arn = _prompt_optional_runtime_arn("Patch Execution runtime ARN", os.environ.get("PATCH_EXECUTION_ARN") or DEFAULT_PATCH_EXECUTION_ARN)
+        if patch_exec_runtime_arn:
+            payload["patch_execution_runtime_arn"] = patch_exec_runtime_arn
+        
+        payload["patch_final_result"] = _prompt_json_file("patch_final_result", "patch_final_result", required=True)
+        payload["prompt"] = _prompt_with_default("패치 실행 프롬프트", "보안 패치 분석 및 자동 실행")
+
     elif mode == "test":
         stop_stage = _choose_stop_stage()
         payload["stop_stage"] = stop_stage
