@@ -23,28 +23,28 @@ def build_agent_mission(user_prompt: str, approval_context: str, impact_assessme
     "summary": "총 4대의 인스턴스 중, 2대는 자율 패치 스크립트를 생성했고 2대는 승인 대기로 분류했습니다.",
     "patch_plans": [
         {{
-            "cve_id": "CVE-2021-44228",
-            "product": "Apache Log4j2",
-            "description": "Apache Log4j2의 JNDI 기능에서 원격 코드 실행 취약점 (Log4Shell)",
-            "action": "기존 취약 JAR 파일을 제거한 후, 안전한 버전(2.17.1 이상)의 JAR 파일을 재배치합니다.",
-            "auto_patch_instances": [],
-            "manual_approval_instances": ["i-0a9532429e01d003f", "i-0c0758a81884e6056"],
-            "manual_reason": "핵심 비즈니스 App 서버의 무단 재시작 방지 및 관리자 검증 필요"
-        }},
-        {{
             "cve_id": "CVE-2021-23017",
-            "product": "F5 NGINX",
-            "description": "NGINX의 ngx_resolver_copy() 함수에서 메모리 손상을 유발할 수 있는 Off-by-one 취약점",
+            "product": "NGINX",
+            "description": "<이전 단계에서 분석된 해당 CVE(CVE-2021-23017)의 상세 설명(Description) 데이터 불러오기>",
             "action": "기존 취약 파일을 강제 제거한 후, 최신 소스를 자율적으로 빌드하여 재설치합니다.",
-            "auto_patch_instances": ["i-0c520106fd542c5f4", "i-0eaad4f5cd4a529a5"],
+            "auto_patch_instances": ["<이전 단계에서 분석된 Web 서버(NGINX) 인스턴스 ID 배열 불러오기>"],
             "manual_approval_instances": [],
             "manual_reason": ""
+        }},
+        {{
+            "cve_id": "CVE-2021-44228",
+            "product": "Apache Log4j2",
+            "description": "<이전 단계에서 분석된 해당 CVE(CVE-2021-44228)의 상세 설명(Description) 데이터 불러오기>",
+            "action": "기존 취약 JAR 파일을 제거한 후, 안전한 버전(2.17.1 이상)의 JAR 파일을 재배치합니다.",
+            "auto_patch_instances": [],
+            "manual_approval_instances": ["<이전 단계에서 분석된 App 서버(Log4j) 인스턴스 ID 배열 불러오기>"],
+            "manual_reason": "핵심 비즈니스 App 서버의 무단 재시작 방지 및 관리자 검증 필요"
         }}
     ],
     "patch_executions": [
         {{
-            "instance_id": "인스턴스_ID",
-            "script": "상세_배시_스크립트"
+            "instance_id": "<분류된_각_인스턴스의_실제_ID_매핑>",
+            "script": "<해당_인스턴스_환경에_맞는_상세_Bash_스크립트>"
         }}
     ]
 }}
