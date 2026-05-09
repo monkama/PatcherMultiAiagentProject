@@ -31,6 +31,12 @@ DEFAULT_ORCHESTRATOR_ARN = (
 DEFAULT_PATCH_IMPACT_ARN = (
     "arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/patch_impact_container-qNIi2mCjRa"
 )
+DEFAULT_INFRA_MATCHING_ARN = (
+    os.environ.get("INFRA_MATCHING_AGENTCORE_ARN")
+    or os.environ.get("ASSET_MATCHING_AGENTCORE_ARN")
+    or os.environ.get("ASSET_MATCHING_ARN")
+    or "arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/asset_matching_agent-zoDcgCEt8u"
+)
 DEFAULT_PATCH_EXECUTION_ARN = (
     "arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/patch_agent-tv3CWxBmLK"
 )
@@ -97,11 +103,11 @@ def _print_usage_guide() -> None:
         "   필요 입력: infra_context.json, risk_evaluation_result.json, operational_impact_payloads.json\n"
         "   patch ARN은 기본값이 새 container runtime 으로 잡혀 있고, 바꾸고 싶으면 직접 입력하면 됩니다.\n"
         "   patch는 현재 Bedrock 기반이며 OpenAI 키 입력은 더 이상 필요하지 않습니다.\n"
-        "   follow-up 질문까지 할지 마지막에 한 번 더 묻습니다.\n"
+        "   stage1 정리, asset follow-up, final 판단을 한 번의 patch 호출 안에서 처리합니다.\n"
         "6. test\n"
         "   중간 단계 주입 테스트\n"
         "   stop_stage 를 고르고, 그 단계에 필요한 JSON만 넣으면 됩니다.\n"
-        "7. patch_exec_only\n"  
+        "7. patch_exec_only\n"
         "   패치 실행 에이전트만 단독으로 실행\n"
         "   필요 입력: patch_impact_final_result.json\n"
     )
@@ -344,16 +350,16 @@ def _build_payload_interactively() -> tuple[dict[str, Any], str]:
         patch_runtime_arn = _prompt_optional_runtime_arn("Patch runtime ARN", os.environ.get("PATCH_IMPACT_ARN") or DEFAULT_PATCH_IMPACT_ARN)
         if patch_runtime_arn:
             payload["patch_impact_runtime_arn"] = patch_runtime_arn
+        payload["infra_matching_runtime_arn"] = DEFAULT_INFRA_MATCHING_ARN
         payload["infra_context"] = _prompt_json_file("infra_context", "infra_context", required=True)
         payload["risk_result"] = _prompt_json_file("risk_result", "risk_result", required=True)
         payload["operational_payload"] = _prompt_json_file("operational_payload", "operational_payload", required=True)
-        payload["allow_followup"] = _prompt_yes_no("follow-up 질문까지 실행할까요?", default=True)
-
+        payload["allow_followup"] = True
     elif mode == "patch_exec_only":
         patch_exec_runtime_arn = _prompt_optional_runtime_arn("Patch Execution runtime ARN", os.environ.get("PATCH_EXECUTION_ARN") or DEFAULT_PATCH_EXECUTION_ARN)
         if patch_exec_runtime_arn:
             payload["patch_execution_runtime_arn"] = patch_exec_runtime_arn
-        
+
         payload["patch_final_result"] = _prompt_json_file("patch_final_result", "patch_final_result", required=True)
         payload["prompt"] = _prompt_with_default("패치 실행 프롬프트", "보안 패치 분석 및 자동 실행")
 
@@ -453,12 +459,66 @@ def _normalize_patch_to_asset_log(followup_stage: dict[str, Any], run_tag: str) 
         parsed_answer = result_wrapper.get("parsed_answer") if isinstance(result_wrapper.get("parsed_answer"), dict) else {}
         transcript = response_wrapper.get("transcript") if isinstance(response_wrapper.get("transcript"), list) else None
 
+        if transcript is None and isinstance(item.get("transcript"), list):
+            transcript = []
+            for turn_number, turn in enumerate(item.get("transcript", []), start=1):
+                if not isinstance(turn, dict):
+                    continue
+                question_info = turn.get("question") if isinstance(turn.get("question"), dict) else {}
+                normalized_answer = turn.get("normalized_answer") if isinstance(turn.get("normalized_answer"), dict) else {}
+                question = str(
+                    question_info.get("question")
+                    or normalized_answer.get("question")
+                    or ""
+                ).strip()
+                question_type = str(
+                    question_info.get("type")
+                    or normalized_answer.get("type")
+                    or "patch_followup"
+                ).strip()
+                if not question:
+                    continue
+                transcript.append(
+                    {
+                        "turn": turn_number,
+                        "question_type": question_type,
+                        "question": question,
+                        "answer": str(normalized_answer.get("answer") or "").strip(),
+                        "evidence": str(normalized_answer.get("evidence") or "").strip(),
+                        "confidence": str(normalized_answer.get("confidence") or "").strip(),
+                    }
+                )
+
+        if not question_bundle:
+            answers = item.get("answers") if isinstance(item.get("answers"), list) else []
+            question_bundle = {
+                "questions": [
+                    {
+                        "id": str(answer.get("id") or "").strip(),
+                        "question_type": str(answer.get("type") or "patch_followup").strip(),
+                        "question": str(answer.get("question") or "").strip(),
+                    }
+                    for answer in answers
+                    if isinstance(answer, dict) and str(answer.get("question") or "").strip()
+                ]
+            }
+
+        if not parsed_answer and (isinstance(item.get("answers"), list) or isinstance(item.get("unknowns"), list)):
+            parsed_answer = {
+                "answers": item.get("answers", []),
+                "unknowns": item.get("unknowns", []),
+            }
+
         if transcript is None:
             transcript = []
             for turn_number, question_item in enumerate(question_bundle.get("questions", []), start=1):
                 if isinstance(question_item, dict):
                     question = str(question_item.get("question") or question_item.get("prompt") or "").strip()
-                    question_type = str(question_item.get("question_type") or "patch_followup").strip()
+                    question_type = str(
+                        question_item.get("question_type")
+                        or question_item.get("type")
+                        or "patch_followup"
+                    ).strip()
                 else:
                     question = str(question_item or "").strip()
                     question_type = "patch_followup"
@@ -472,14 +532,20 @@ def _normalize_patch_to_asset_log(followup_stage: dict[str, Any], run_tag: str) 
                     }
                 )
 
+        request_id = str(item.get("request_id") or "").strip()
+        cve_id = str(item.get("cve_id") or "").strip()
+        instance_id = str(item.get("instance_id") or item.get("asset_id") or "").strip()
+        if not request_id:
+            request_id = "__".join(part for part in (cve_id, instance_id) if part) or f"request-{uuid.uuid4().hex[:8]}"
+
         conversations.append(
             {
-                "request_id": str(item.get("request_id") or "").strip(),
-                "cve_id": str(item.get("cve_id") or "").strip(),
-                "instance_id": str(item.get("instance_id") or "").strip(),
-                "source_agent": str(item.get("source_agent") or "").strip(),
-                "target_agent": str(item.get("target_agent") or "").strip(),
-                "tool_rounds_used": response_wrapper.get("tool_rounds_used"),
+                "request_id": request_id,
+                "cve_id": cve_id,
+                "instance_id": instance_id,
+                "source_agent": str(item.get("source_agent") or "patch_impact_agent").strip(),
+                "target_agent": str(item.get("target_agent") or "asset_matching_agent").strip(),
+                "tool_rounds_used": response_wrapper.get("tool_rounds_used") or (len(item.get("answers", [])) if isinstance(item.get("answers"), list) else None),
                 "conversation_trace_path": response_wrapper.get("conversation_trace_path"),
                 "question_bundle": question_bundle,
                 "transcript": transcript,
@@ -490,7 +556,7 @@ def _normalize_patch_to_asset_log(followup_stage: dict[str, Any], run_tag: str) 
     return {
         "run_tag": run_tag,
         "generated_at": followup_stage.get("generated_at"),
-        "response_count": followup_stage.get("response_count"),
+        "response_count": followup_stage.get("response_count") or len(responses),
         "conversations": conversations,
     }
 
