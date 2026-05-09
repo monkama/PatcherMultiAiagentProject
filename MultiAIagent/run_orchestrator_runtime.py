@@ -26,7 +26,7 @@ PATCH_TO_ASSET_LOG_ROOT = CONVERSATION_LOG_ROOT / "PatchToAsset"
 DEFAULT_REGION = "ap-northeast-2"
 DEFAULT_STACK_NAME = "megathon"
 DEFAULT_ORCHESTRATOR_ARN = (
-    "arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/orchestrator_agent-JZKEPYHOwx"
+    "arn:aws:bedrock-agentcore:ap-northeast-2:430155298344:runtime/orchestrator_agent-8k7OmMCEH7"
 )
 DEFAULT_PATCH_IMPACT_ARN = (
     "arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/patch_impact_container-qNIi2mCjRa"
@@ -38,7 +38,7 @@ DEFAULT_INFRA_MATCHING_ARN = (
     or "arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/asset_matching_agent-zoDcgCEt8u"
 )
 DEFAULT_PATCH_EXECUTION_ARN = (
-    "arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/patch_agent-tv3CWxBmLK"
+    "arn:aws:bedrock-agentcore:ap-northeast-2:430155298344:runtime/patch_agent-pV8EJSDs55"
 )
 DEFAULT_READ_TIMEOUT = 900
 DEFAULT_CONNECT_TIMEOUT = 10
