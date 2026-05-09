@@ -2,6 +2,8 @@
 .env
 __pycache__/
 *.log
-.DS_Store (맥북 사용자라면 필수)
+.DS_Store
 *.hash
 *.zip
+data/
+models/
