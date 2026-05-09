@@ -39,20 +39,20 @@ DEFAULT_STACK_NAME = os.environ.get("CF_STACK_NAME", "megathon")
 DEFAULT_AGENTCORE_READ_TIMEOUT = int(os.environ.get("AGENTCORE_READ_TIMEOUT", "900"))
 DEFAULT_AGENTCORE_CONNECT_TIMEOUT = int(os.environ.get("AGENTCORE_CONNECT_TIMEOUT", "10"))
 DEFAULT_INFRA_MATCHING_RUNTIME_ARN = (
-    "arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/"
-    "asset_matching_agent-zoDcgCEt8u"
+    "arn:aws:bedrock-agentcore:ap-northeast-2:430155298344:runtime/"
+    "asset_matching_agent-TZCFW6ByUy"
 )
 DEFAULT_VULN_COLLECTOR_RUNTIME_ARN = (
-    "arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/"
-    "vul_collector_agent-JMTqI0Do5W"
+    "arn:aws:bedrock-agentcore:ap-northeast-2:430155298344:runtime/"
+    "vuln_select_agent-hRB66F6mt0"
 )
 DEFAULT_RISK_EVAL_RUNTIME_ARN = (
-    "arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/"
-    "risk_evaluation_agent-A2PkRd5CzC"
+    "arn:aws:bedrock-agentcore:ap-northeast-2:430155298344:runtime/"
+    "risk_evaluation_agent-r3w0nm4T4n"
 )
 DEFAULT_PATCH_IMPACT_RUNTIME_ARN = (
-    "arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/"
-    "patch_impact_container-qNIi2mCjRa"
+    "arn:aws:bedrock-agentcore:ap-northeast-2:430155298344:runtime/"
+    "patch_impact_container-ip7I6WGliV"
 )
 DEFAULT_PATCH_EXECUTION_RUNTIME_ARN = (
     "arn:aws:bedrock-agentcore:ap-northeast-2:430155298344:runtime/"

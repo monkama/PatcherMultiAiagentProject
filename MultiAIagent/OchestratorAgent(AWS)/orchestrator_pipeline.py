@@ -31,7 +31,7 @@ DEFAULT_INFRA_MATCHING_RUNTIME_ARN = (
     os.environ.get("INFRA_MATCHING_AGENTCORE_ARN")
     or os.environ.get("ASSET_MATCHING_AGENTCORE_ARN")
     or os.environ.get("ASSET_MATCHING_ARN")
-    or "arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/asset_matching_agent-zoDcgCEt8u"
+    or "arn:aws:bedrock-agentcore:ap-northeast-2:430155298344:runtime/asset_matching_agent-TZCFW6ByUy"
 )
 VALID_MODES = {"full", "vuln_only", "asset_only", "risk_only", "patch_only", "test", "patch_exec_only"}
 STAGE_ORDER = {

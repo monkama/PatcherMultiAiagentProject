@@ -29,13 +29,13 @@ DEFAULT_ORCHESTRATOR_ARN = (
     "arn:aws:bedrock-agentcore:ap-northeast-2:430155298344:runtime/orchestrator_agent-8k7OmMCEH7"
 )
 DEFAULT_PATCH_IMPACT_ARN = (
-    "arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/patch_impact_container-qNIi2mCjRa"
+    "arn:aws:bedrock-agentcore:ap-northeast-2:430155298344:runtime/patch_impact_container-ip7I6WGliV"
 )
 DEFAULT_INFRA_MATCHING_ARN = (
     os.environ.get("INFRA_MATCHING_AGENTCORE_ARN")
     or os.environ.get("ASSET_MATCHING_AGENTCORE_ARN")
     or os.environ.get("ASSET_MATCHING_ARN")
-    or "arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/asset_matching_agent-zoDcgCEt8u"
+    or "arn:aws:bedrock-agentcore:ap-northeast-2:430155298344:runtime/asset_matching_agent-TZCFW6ByUy"
 )
 DEFAULT_PATCH_EXECUTION_ARN = (
     "arn:aws:bedrock-agentcore:ap-northeast-2:430155298344:runtime/patch_agent-pV8EJSDs55"
