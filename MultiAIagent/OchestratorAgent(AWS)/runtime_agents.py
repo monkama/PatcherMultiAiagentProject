@@ -56,7 +56,7 @@ DEFAULT_PATCH_IMPACT_RUNTIME_ARN = (
 )
 DEFAULT_PATCH_EXECUTION_RUNTIME_ARN = (
     "arn:aws:bedrock-agentcore:ap-northeast-2:430155298344:runtime/"
-    "patch_agent-pV8EJSDs55"
+    "patch_agent-ScLZBmFxZd"
 )
 
 INFRA_MATCHING_RUNTIME_ARN_ENV_KEYS = (

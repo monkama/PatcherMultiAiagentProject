@@ -12,14 +12,14 @@ mkdir -p "$BUILD_DIR" "$DIST_DIR"
 if command -v uv >/dev/null 2>&1; then
   uv pip install \
     --python-platform aarch64-manylinux2014 \
-    --python-version 3.13 \
+    --python-version 3.12 \
     --target="$BUILD_DIR" \
     --only-binary=:all: \
     -r "$ROOT_DIR/requirements.txt"
 elif command -v python3.13 >/dev/null 2>&1; then
   python3.13 -m pip install \
     --platform manylinux2014_aarch64 \
-    --python-version 3.13 \
+    --python-version 3.12 \
     --implementation cp \
     --only-binary=:all: \
     --target "$BUILD_DIR" \

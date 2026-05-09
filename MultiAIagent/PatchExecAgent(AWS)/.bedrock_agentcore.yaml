@@ -311,12 +311,12 @@ agents:
     container_runtime: none
     source_path: /Users/hwan/PatcherMultiAiagentProject/MultiAIagent/PatchExecAgent(AWS)
     aws:
-      execution_role: arn:aws:iam::842337469411:role/megathon_patch_agent_role
+      execution_role: arn:aws:iam::430155298344:role/AmazonBedrockAgentCoreSDKRuntime-ap-northeast-2-7de5e4ef39
       execution_role_auto_create: false
-      account: '842337469411'
+      account: '430155298344'
       region: ap-northeast-2
-      ecr_repository: 842337469411.dkr.ecr.ap-northeast-2.amazonaws.com/bedrock-agentcore-patch_agent
-      ecr_auto_create: false
+      ecr_repository: 430155298344.dkr.ecr.ap-northeast-2.amazonaws.com/bedrock-agentcore-patch_agent
+      ecr_auto_create: true
       s3_path: null
       s3_auto_create: false
       network_configuration:
@@ -330,13 +330,13 @@ agents:
         idle_runtime_session_timeout: null
         max_lifetime: null
     bedrock_agentcore:
-      agent_id: patch_agent-tv3CWxBmLK
-      agent_arn: arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/patch_agent-tv3CWxBmLK
+      agent_id: patch_agent-ScLZBmFxZd
+      agent_arn: arn:aws:bedrock-agentcore:ap-northeast-2:430155298344:runtime/patch_agent-ScLZBmFxZd
       agent_session_id: null
     codebuild:
       project_name: bedrock-agentcore-patch_agent-builder
-      execution_role: arn:aws:iam::842337469411:role/AmazonBedrockAgentCoreSDKCodeBuild-ap-northeast-2-7de5e4ef39
-      source_bucket: bedrock-agentcore-codebuild-sources-842337469411-ap-northeast-2
+      execution_role: arn:aws:iam::430155298344:role/AmazonBedrockAgentCoreSDKCodeBuild-ap-northeast-2-7de5e4ef39
+      source_bucket: bedrock-agentcore-codebuild-sources-430155298344-ap-northeast-2
     memory:
       mode: NO_MEMORY
       memory_id: null

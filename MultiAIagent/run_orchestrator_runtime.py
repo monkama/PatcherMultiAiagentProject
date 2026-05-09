@@ -38,7 +38,7 @@ DEFAULT_INFRA_MATCHING_ARN = (
     or "arn:aws:bedrock-agentcore:ap-northeast-2:430155298344:runtime/asset_matching_agent-TZCFW6ByUy"
 )
 DEFAULT_PATCH_EXECUTION_ARN = (
-    "arn:aws:bedrock-agentcore:ap-northeast-2:430155298344:runtime/patch_agent-pV8EJSDs55"
+    "arn:aws:bedrock-agentcore:ap-northeast-2:430155298344:runtime/patch_agent-ScLZBmFxZd"
 )
 DEFAULT_READ_TIMEOUT = 900
 DEFAULT_CONNECT_TIMEOUT = 10
