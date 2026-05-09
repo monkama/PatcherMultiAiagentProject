@@ -36,13 +36,21 @@ def get_refined_vulnerability(payload: Optional[Union[dict, str]] = None):
         cvss_details = record.get("cvss", {}).get("vector_details", {})
         refined_records.append({
             "cve_id": record.get("cve_id"),
+            "title": record.get("title"),
+            "description": record.get("description"),
             "severity": record.get("severity"),
             "score": record.get("cvss", {}).get("score"),
             "attack_vector": cvss_details.get("attack_vector"),
             "attack_complexity": cvss_details.get("attack_complexity"),
             "privileges_required": cvss_details.get("privileges_required"),
+            "user_interaction": cvss_details.get("user_interaction"),
+            "scope": cvss_details.get("scope"),
             "domain": record.get("security_domain"),
-            "summary": record.get("title"),
+            "weaknesses": record.get("weaknesses", []),
+            "cwe_names": record.get("cwe_names", []),
+            "risk_signals": record.get("risk_signals", {}),
+            "common_consequences": record.get("common_consequences", []),
+            "analyst_summary": record.get("analyst_summary"),
         })
     return refined_records
 

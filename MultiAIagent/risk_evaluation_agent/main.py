@@ -122,15 +122,15 @@ def query_asset_details(instance_id: str, question: str) -> str:
     """
     특정 EC2 인스턴스에 대해 자산 매칭 에이전트에게 추가 조사를 요청한다.
     위험도 평가에 필요한 사실이 프롬프트에 없으면 이 도구로 실시간 추가 조사를 수행한다.
-    특히 CVE별 완화 조치 적용 여부, 취약 프로세스의 root/non-root 실행 여부,
-    public/private 노출 여부, 관련 설정 파일/프로세스/포트 근거를 확인할 때 사용한다.
+    특히 CVE별 패치/완화 적용 여부, 취약 컴포넌트의 실제 설치/실행 여부,
+    공격 전제조건 충족 여부, 관련 설정 파일/프로세스/포트 근거를 확인할 때 사용한다.
 
     Args:
         instance_id: 조사 대상 EC2 인스턴스 ID (예: i-0123abcd).
         question: 자산 매칭 에이전트에게 보낼 구체적 질문
-                  (예: "CVE-2021-44228에 대해 log4j2.formatMsgNoLookups 설정 또는
-                  JndiLookup 제거 여부, java root 실행 여부, public 노출 여부를
-                  명령 출력 근거와 함께 확인해 달라.").
+                  (예: "이 CVE가 영향을 주는 컴포넌트가 실제 설치/실행 중인지,
+                  패치 또는 완화 설정이 적용됐는지, 공격 전제조건이 이 자산에서
+                  충족되는지 명령 출력 근거와 함께 확인해 달라.").
 
     Returns:
         자산 매칭 에이전트의 답변 텍스트 (answer + confidence + evidence).
@@ -254,18 +254,29 @@ def invoke(payload):
 각 CVE 가 영향을 미치는 소프트웨어를 자산 목록의 installed_software 와 대조하여 취약 인스턴스를 찾으십시오.
 
 # STEP 2 — 부족한 런타임 사실 확인
-자산 목록은 후보 식별용 요약입니다. mitigation 적용 여부, root/non-root 실행 여부,
-public/private 노출 여부는 이 요약만으로 확정하지 마십시오.
+자산 목록은 후보 식별용 요약입니다. 패치/완화 적용 여부, 취약 컴포넌트의 실제 실행 여부,
+권한, 네트워크 노출, 인증/사용자입력/프로토콜/설정 활성화 같은 공격 전제조건은 이 요약만으로 확정하지 마십시오.
+
+각 CVE의 description, domain, risk_signals, CWE, common_consequences, analyst_summary를 읽고
+해당 취약점의 실제 악용 가능성을 판단하는 데 필요한 런타임 확인 항목을 먼저 정하십시오.
 
 최종 JSON을 작성하기 전에, impacted_assets 에 포함할 모든 CVE-자산 조합에 대해
 반드시 query_asset_details(instance_id, question) 도구를 최소 1회 호출해 asset_matching_agent 에 확인하십시오.
 도구를 호출하지 않은 자산은 impacted_assets 에 포함하지 마십시오.
 
-각 도구 호출은 아래 사실을 모두 확인해야 합니다.
-- CVE별 완화 조치 또는 우회 조치가 실제로 적용되어 있는지
-- 취약 소프트웨어 또는 관련 프로세스가 root 권한으로 실행 중인지
-- 자산이 public IP, public subnet, internet-facing port 등으로 외부 노출되어 있는지
-- 판단 근거가 된 설정 파일, 프로세스, 포트, 명령 출력이 무엇인지
+각 도구 호출은 최소한 아래 공통 사실을 확인해야 합니다.
+- CVE별 패치, 완화 조치, 우회 조치가 실제로 적용되어 있는지
+- 취약 소프트웨어/컴포넌트가 실제 설치되어 있고 실행 또는 사용 중인지
+- 취약 컴포넌트 또는 관련 프로세스가 높은 권한(root/administrator 등)으로 실행 중인지
+- CVSS와 risk_signals가 요구하는 공격 경로(네트워크, 로컬, 인증, 사용자 상호작용, 입력 도달성 등)가 이 자산에서 충족되는지
+- 판단 근거가 된 설정 파일, 프로세스, 포트, 패키지/라이브러리, 명령 출력이 무엇인지
+
+CVE 특성에 따라 필요한 추가 확인 항목이 있으면 질문에 포함하십시오.
+- deserialization / injection / RCE: 외부 입력이 취약 라이브러리나 sink까지 도달하는지
+- authentication bypass / privilege escalation: 인증 경계, 실행 사용자, 권한 상승 경로가 실제로 존재하는지
+- memory corruption / parser bug: 취약 프로토콜, parser, resolver, codec, module이 활성화되어 있는지
+- path traversal / file read-write: 사용자 입력이 파일 경로 또는 파일 API로 전달되는지
+- DoS: 취약 서비스가 운영 트래픽 경로에 있고 재시작/장애 영향이 큰지
 
 도구 질문은 한 인스턴스에 대해 가능한 한 통합해서 묻되, CVE와 확인할 항목을 구체적으로 적으십시오.
 도구 호출이 실패하면 실패 사실을 risk_adjustment_reason 에 기록하고, 해당 조건은 추측하지 말고 unknown 또는 보수적 판단으로 남기십시오.
@@ -319,10 +330,12 @@ RESPONSE MUST BE A SINGLE JSON ARRAY ONLY. NO TEXT OUTSIDE THE JSON. NO LINE BRE
 
     system_prompt = (
         "당신은 CVE 취약점 지식을 보유한 보안 위험도 평가 전문가입니다. "
-        "입력의 자산 목록은 후보 식별용 요약이며 mitigation, root 실행, 외부 노출 같은 "
-        "런타임 사실을 확정하기에 충분하지 않을 수 있습니다. "
+        "입력의 CVE 정보로 취약점별 공격 전제조건을 먼저 파악하고, 자산 목록은 후보 식별용 요약으로만 사용하십시오. "
+        "패치/완화 적용, 취약 컴포넌트의 실제 실행/사용 여부, 권한, 노출, 입력 도달성, 설정 활성화 같은 "
+        "런타임 사실은 프롬프트의 요약만으로 확정하지 마십시오. "
         "최종 impacted_assets 에 포함할 모든 CVE-자산 조합은 반드시 query_asset_details 도구로 "
-        "asset_matching_agent 에 확인한 뒤 판단하십시오. 도구를 호출하지 않은 자산은 최종 결과에 포함하지 마십시오. "
+        "asset_matching_agent 에 확인한 뒤 판단하십시오. 질문은 특정 CVE 유형에 필요한 확인 항목을 스스로 정해 작성하십시오. "
+        "도구를 호출하지 않은 자산은 최종 결과에 포함하지 마십시오. "
         "도구 응답의 answer, confidence, evidence 를 risk_adjustment_reason 에 반영하고, "
         "도구 실패 시에는 추측하지 말고 실패와 불확실성을 기록하십시오."
     )
