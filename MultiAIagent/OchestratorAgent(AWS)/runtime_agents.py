@@ -165,6 +165,7 @@ def _resolve_patch_impact_runtime_arn(payload: dict[str, Any]) -> str:
         DEFAULT_PATCH_IMPACT_RUNTIME_ARN,
     )
 
+
 def _resolve_patch_execution_runtime_arn(payload: dict[str, Any]) -> str:
     return _resolve_runtime_arn(
         payload,
@@ -443,6 +444,9 @@ def run_patch_impact_agent(payload: dict[str, Any]) -> dict[str, Any]:
         result_path = Path(payload.get("save_path") or PATCH_PRE_RESULT_PATH)
         request_path = Path(payload.get("additional_request_path") or PATCH_FOLLOWUP_REQUEST_PATH)
         additional_request = remote_result.get("additional_request") if isinstance(remote_result.get("additional_request"), dict) else {"requests": [], "request_count": 0}
+        if "request_count" not in additional_request:
+            requests = additional_request.get("requests")
+            additional_request["request_count"] = len(requests) if isinstance(requests, list) else 0
         request_debug = remote_result.get("request_debug") if isinstance(remote_result.get("request_debug"), dict) else {}
         _write_json(result_path, local_result)
         _write_json(request_path, additional_request)
@@ -458,7 +462,7 @@ def run_patch_impact_agent(payload: dict[str, Any]) -> dict[str, Any]:
             "result": local_result,
         }
 
-    if action in {"run_followup_conversation", "followup", "followup_conversation"}:
+    if action in {"run_patch_followup", "followup", "ask_asset_agent", "run_followup_conversation", "followup_conversation"}:
         local_result = remote_result.get("result") if isinstance(remote_result.get("result"), dict) else remote_result
         result_path = Path(payload.get("save_path") or PATCH_FOLLOWUP_RESULT_PATH)
         _write_json(result_path, local_result)
@@ -484,6 +488,39 @@ def run_patch_impact_agent(payload: dict[str, Any]) -> dict[str, Any]:
             "runtime_arn": runtime_arn,
             "result_path": str(result_path),
             "result": local_result,
+        }
+
+    if action in {"run_patch_impact_pipeline", "run_patch_impact", "pipeline"}:
+        local_result = remote_result if isinstance(remote_result, dict) else {}
+        prejudge_result = local_result.get("prejudge_result") if isinstance(local_result.get("prejudge_result"), dict) else {}
+        additional_request = local_result.get("additional_request") if isinstance(local_result.get("additional_request"), dict) else {"requests": [], "request_count": 0}
+        followup_stage = local_result.get("followup_stage") if isinstance(local_result.get("followup_stage"), dict) else {"responses": [], "response_count": 0}
+        final_result = local_result.get("result") if isinstance(local_result.get("result"), dict) else {}
+
+        stage1_path = Path(payload.get("stage1_save_path") or PATCH_PRE_RESULT_PATH)
+        request_path = Path(payload.get("additional_request_path") or PATCH_FOLLOWUP_REQUEST_PATH)
+        followup_path = Path(payload.get("followup_save_path") or PATCH_FOLLOWUP_RESULT_PATH)
+        final_path = Path(payload.get("save_path") or PATCH_FINAL_RESULT_PATH)
+
+        _write_json(stage1_path, prejudge_result)
+        _write_json(request_path, additional_request)
+        _write_json(followup_path, followup_stage)
+        _write_json(final_path, final_result)
+
+        return {
+            "agent": "patch_impact_agent",
+            "action": action,
+            "status": "ok",
+            "backend": "agentcore_runtime",
+            "runtime_arn": runtime_arn,
+            "stage1_result_path": str(stage1_path),
+            "additional_request_path": str(request_path),
+            "followup_result_path": str(followup_path),
+            "result_path": str(final_path),
+            "prejudge_result": prejudge_result,
+            "additional_request": additional_request,
+            "followup_stage": followup_stage,
+            "result": final_result,
         }
 
     if action in {"query_patch_impact", "query"}:
@@ -513,9 +550,9 @@ def run_patch_execution_agent(payload: dict[str, Any]) -> dict[str, Any]:
 
     action = str(payload.get("action") or "execute_patch").strip().lower()
     region = str(payload.get("region") or DEFAULT_REGION)
-    
+
     remote_result = _invoke_agentcore_runtime(runtime_arn, payload, region)
-    
+
     if "error" in remote_result:
         raise RuntimeError(f"patch_execution_agent 호출 실패: {remote_result['error']}")
 

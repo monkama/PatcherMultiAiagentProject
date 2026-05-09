@@ -17,6 +17,7 @@ from pipeline_stages import (
     run_patch_finalize_stage,
     run_patch_followup_stage,
     run_patch_pre_stage,
+    run_patch_stage,
     run_risk_stage,
     run_vuln_stage,
     run_patch_execution_stage,
@@ -26,6 +27,12 @@ from pipeline_stages import (
 MODULE_ROOT = Path(__file__).resolve().parent
 PROJECT_ROOT = MODULE_ROOT.parent.parent
 DEFAULT_STACK_NAME = os.environ.get("CF_STACK_NAME", "megathon")
+DEFAULT_INFRA_MATCHING_RUNTIME_ARN = (
+    os.environ.get("INFRA_MATCHING_AGENTCORE_ARN")
+    or os.environ.get("ASSET_MATCHING_AGENTCORE_ARN")
+    or os.environ.get("ASSET_MATCHING_ARN")
+    or "arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/asset_matching_agent-zoDcgCEt8u"
+)
 VALID_MODES = {"full", "vuln_only", "asset_only", "risk_only", "patch_only", "test", "patch_exec_only"}
 STAGE_ORDER = {
     "vuln": 1,
@@ -73,7 +80,9 @@ def _build_config(payload: dict[str, Any]) -> dict[str, Any]:
         "orchestration_style": "direct_pipeline",
         "stack_name": str(payload.get("stack_name") or "").strip() or DEFAULT_STACK_NAME,
         "region": str(payload.get("region") or "ap-northeast-2"),
-        "infra_matching_runtime_arn": str(payload.get("infra_matching_runtime_arn") or "").strip() or None,
+        "infra_matching_runtime_arn": (
+            str(payload.get("infra_matching_runtime_arn") or "").strip() or DEFAULT_INFRA_MATCHING_RUNTIME_ARN
+        ),
         "patch_impact_runtime_arn": str(
             payload.get("patch_impact_runtime_arn") or payload.get("patch_runtime_arn") or ""
         ).strip()
@@ -243,13 +252,12 @@ def _record_count(payload: Any) -> int:
 
 
 def _build_pipeline_result(state: dict[str, Any], config: dict[str, Any], agent_message: str) -> dict[str, Any]:
+    patch_present = any(state.get(key) for key in ("patch_pre_stage", "followup_stage", "patch_final_stage"))
     pipeline = [
         "vuln_collector_agent" if state.get("vuln_stage") else None,
         "infra_matching_agent" if state.get("asset_stage") else None,
         "risk_evaluation_agent" if state.get("risk_stage") else None,
-        "patch_impact_agent_stage1" if state.get("patch_pre_stage") else None,
-        "patch_impact_agent_followup" if state.get("followup_stage") else None,
-        "patch_impact_agent_stage3" if state.get("patch_final_stage") else None,
+        "patch_impact_agent" if patch_present else None,
         "patch_execution_agent" if state.get("patch_execution_stage") else None,
     ]
     result = {
@@ -390,39 +398,23 @@ def run_risk_only(payload: dict[str, Any]) -> dict[str, Any]:
 def run_patch_only(payload: dict[str, Any]) -> dict[str, Any]:
     config = _build_config(payload)
     state = _seed_state(payload)
-    injected_request = _write_injected_followup_request(payload)
     config["injected_state"] = list(state.keys())
-
-    if "patch_pre_stage" not in state:
-        state["patch_pre_stage"] = run_patch_pre_stage(
+    if "patch_final_stage" not in state:
+        patch_stage = run_patch_stage(
             region=config["region"],
             infra_context=_resolve_infra_context(state, payload, field_name="infra_context"),
             risk_result=_resolve_risk_result(state, payload),
             operational_payload=_resolve_operational_payload(state, payload),
-            patch_impact_runtime_arn=config["patch_impact_runtime_arn"],
-        )["patch_pre_stage"]
-
-    request_count = int((injected_request or {}).get("request_count", _load_followup_request_count()))
-    if request_count > 0 and not config["allow_followup"]:
-        return _build_pipeline_result(state, config, "patch_only 모드 실행 완료 (follow-up 비활성화로 patch_pre 에서 종료)")
-
-    if config["allow_followup"] and request_count > 0 and "followup_stage" not in state:
-        state["followup_stage"] = run_patch_followup_stage(
-            region=config["region"],
-            infra_context=_resolve_infra_context(state, payload, field_name="infra_context"),
-            prejudge_result=state.get("patch_pre_stage", {}).get("result"),
-            requests=(injected_request or {}).get("requests"),
+            additional_asset_context=state.get("followup_stage"),
             infra_matching_runtime_arn=config["infra_matching_runtime_arn"],
             patch_impact_runtime_arn=config["patch_impact_runtime_arn"],
-        )["followup_stage"]
-
-    state["patch_final_stage"] = run_patch_finalize_stage(
-        region=config["region"],
-        prejudge_result=state.get("patch_pre_stage", {}).get("result"),
-        additional_asset_context=state.get("followup_stage"),
-        patch_impact_runtime_arn=config["patch_impact_runtime_arn"],
-    )["patch_final_stage"]
+            allow_followup=config["allow_followup"],
+        )
+        state["patch_pre_stage"] = patch_stage["patch_pre_stage"]
+        state["followup_stage"] = patch_stage["followup_stage"]
+        state["patch_final_stage"] = patch_stage["patch_final_stage"]
     return _build_pipeline_result(state, config, "patch_only 모드 실행 완료")
+
 
 def run_patch_exec_only(payload: dict[str, Any]) -> dict[str, Any]:
     config = _build_config(payload)
@@ -442,6 +434,7 @@ def run_patch_exec_only(payload: dict[str, Any]) -> dict[str, Any]:
     )["patch_execution_stage"]
 
     return _build_pipeline_result(state, config, "patch_exec_only 모드 실행 완료")
+
 
 def run_orchestrator(payload: dict[str, Any]) -> dict[str, Any]:
     config = _build_config(payload)
@@ -476,7 +469,7 @@ def run_orchestrator(payload: dict[str, Any]) -> dict[str, Any]:
     if stop_stage == "risk":
         return _build_pipeline_result(state, config, "risk 단계까지 실행 완료")
 
-    if _should_execute(stop_stage, "patch_pre") and "patch_pre_stage" not in state:
+    if stop_stage == "patch_pre" and "patch_pre_stage" not in state:
         state["patch_pre_stage"] = run_patch_pre_stage(
             region=config["region"],
             infra_context=_resolve_infra_context(state, payload, field_name="infra_context"),
@@ -492,7 +485,7 @@ def run_orchestrator(payload: dict[str, Any]) -> dict[str, Any]:
         return _build_pipeline_result(state, config, "follow-up 비활성화로 patch_pre 에서 종료")
 
     if (
-        _should_execute(stop_stage, "patch_followup")
+        stop_stage == "patch_followup"
         and config["allow_followup"]
         and request_count > 0
         and "followup_stage" not in state
@@ -509,21 +502,19 @@ def run_orchestrator(payload: dict[str, Any]) -> dict[str, Any]:
         return _build_pipeline_result(state, config, "patch_followup 단계까지 실행 완료")
 
     if _should_execute(stop_stage, "patch_final") and "patch_final_stage" not in state:
-        state["patch_final_stage"] = run_patch_finalize_stage(
+        patch_stage = run_patch_stage(
             region=config["region"],
-            prejudge_result=state.get("patch_pre_stage", {}).get("result"),
+            infra_context=_resolve_infra_context(state, payload, field_name="infra_context"),
+            risk_result=_resolve_risk_result(state, payload),
+            operational_payload=_resolve_operational_payload(state, payload),
             additional_asset_context=state.get("followup_stage"),
+            infra_matching_runtime_arn=config["infra_matching_runtime_arn"],
             patch_impact_runtime_arn=config["patch_impact_runtime_arn"],
-        )["patch_final_stage"]
-    if stop_stage == "patch_final":
-        return _build_pipeline_result(state, config, "patch_final 단계까지 실행 완료")
-    
-    if _should_execute(stop_stage, "patch_execution") and "patch_execution_stage" not in state:
-        state["patch_execution_stage"] = run_patch_execution_stage(
-            region=config["region"],
-            prompt=payload.get("prompt"),
-            impact_data=state.get("patch_final_stage", {}).get("result"),
-        )["patch_execution_stage"]
+            allow_followup=config["allow_followup"],
+        )
+        state["patch_pre_stage"] = patch_stage["patch_pre_stage"]
+        state["followup_stage"] = patch_stage["followup_stage"]
+        state["patch_final_stage"] = patch_stage["patch_final_stage"]
 
     return _build_pipeline_result(state, config, "full/test 모드 실행 완료")
 
@@ -543,4 +534,3 @@ def invoke(payload: dict[str, Any]) -> dict[str, Any]:
     if mode == "patch_exec_only":
         return run_patch_exec_only(payload)
     return run_orchestrator(payload)
-
