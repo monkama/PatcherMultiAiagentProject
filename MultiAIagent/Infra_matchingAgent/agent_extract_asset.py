@@ -2,7 +2,7 @@
 """
 자산 매칭 에이전트 (AI-Agent 기반).
 
-Gemini API (Function Calling) 로 EC2 인스턴스 내부를 조사하여
+AWS Bedrock (Claude Haiku 4.5, Tool Use) 로 EC2 인스턴스 내부를 조사하여
 취약점 평가에 필요한 자산/보안/네트워크/운영 컨텍스트를 수집한다.
 
 두 가지 모드를 지원한다.
@@ -29,25 +29,25 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
-from google import genai
-from google.genai import types
+from typing import Optional
+
+import boto3
+from botocore.exceptions import ClientError
+from strands import Agent, tool
 
 
 # ---------------------------------------------------------------------------
 # 설정
 # ---------------------------------------------------------------------------
 
-MODEL_NAME = "gemini-2.5-pro"
-MODEL_FALLBACKS = [
-    "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",
-]
-_active_model: dict = {"name": None}  # 성공한 모델 이름 캐시
-MAX_AGENT_TURNS = 40
+# Claude Haiku 4.5 (글로벌 inference profile — 자동 cross-region 라우팅)
+BEDROCK_MODEL_ID = os.environ.get(
+    "BEDROCK_MODEL_ID",
+    "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+)
+BEDROCK_REGION = os.environ.get("BEDROCK_REGION", "ap-northeast-2")
 COMMAND_TIMEOUT = 30
-MAX_RETRIES = 3
-RETRY_DELAY = 10
-TOOL_OUTPUT_LIMIT = 2000  # Gemini 에 돌려줄 tool 응답 최대 길이
+TOOL_OUTPUT_LIMIT = 2000  # LLM 에 돌려줄 tool 응답 최대 길이
 
 DEFAULT_REGION = "ap-northeast-2"
 SSM_POLL_INTERVAL = 1
@@ -58,121 +58,36 @@ _BLOCKED = re.compile(
     re.IGNORECASE,
 )
 
+# 리전별 boto3 클라이언트 캐시 — 로컬/AgentCore Runtime 모두 동일하게 동작
+_boto3_clients: dict = {}
+
+
+def _client(service: str, region: str):
+    key = (service, region)
+    if key not in _boto3_clients:
+        _boto3_clients[key] = boto3.client(service, region_name=region)
+    return _boto3_clients[key]
+
+
 IMDS_BASE = "http://169.254.169.254/latest/meta-data"
 IMDS_TIMEOUT = 2
 
 
 # ---------------------------------------------------------------------------
-# 도구 스키마
+# 런타임 상태 — strands @tool 함수가 invocation 별 instance_id/region 에 접근할 수 있도록 사용
 # ---------------------------------------------------------------------------
 
-RUN_COMMAND_DECL = types.FunctionDeclaration(
-    name="run_command",
-    description=(
-        "EC2 인스턴스에서 읽기/조회 목적의 shell 명령어를 실행한다. "
-        "파일 삭제·프로세스 종료 등 파괴적 명령은 거부된다."
-    ),
-    parameters=types.Schema(
-        type=types.Type.OBJECT,
-        properties={
-            "command": types.Schema(
-                type=types.Type.STRING,
-                description="실행할 shell 명령어 (bash -c 로 실행됨)",
-            )
-        },
-        required=["command"],
-    ),
-)
+_runtime_state: dict = {
+    "instance_id": None,
+    "region": DEFAULT_REGION,
+    "collect_result": None,
+    "query_result": None,
+}
 
-READ_FILE_DECL = types.FunctionDeclaration(
-    name="read_file",
-    description="파일 경로를 받아 텍스트 내용을 반환한다.",
-    parameters=types.Schema(
-        type=types.Type.OBJECT,
-        properties={
-            "path": types.Schema(
-                type=types.Type.STRING,
-                description="읽을 파일의 절대 경로",
-            )
-        },
-        required=["path"],
-    ),
-)
 
-SAVE_RESULT_DECL = types.FunctionDeclaration(
-    name="save_result",
-    description=(
-        "자산 수집을 마쳤을 때 호출한다. "
-        "소프트웨어·네트워크·보안·데이터 분류 정보를 종합해 전달하면 "
-        "에이전트가 종료되고 asset_info.json 이 저장된다."
-    ),
-    parameters=types.Schema(
-        type=types.Type.OBJECT,
-        properties={
-            "installed_software": types.Schema(
-                type=types.Type.ARRAY,
-                description="payload 대상 소프트웨어 탐지 결과",
-                items=types.Schema(
-                    type=types.Type.OBJECT,
-                    properties={
-                        "vendor":      types.Schema(type=types.Type.STRING, description="CPE 벤더명 (예: f5, apache)"),
-                        "product":     types.Schema(type=types.Type.STRING, description="CPE 제품명 (예: nginx, log4j)"),
-                        "version":     types.Schema(type=types.Type.STRING, description="설치된 버전 (예: 1.18.0)"),
-                        "cpe":         types.Schema(type=types.Type.STRING, description="CPE 2.3 식별자"),
-                        "source_path": types.Schema(type=types.Type.STRING, description="탐지 근거 경로 (선택)"),
-                    },
-                    required=["vendor", "product", "version", "cpe"],
-                ),
-            ),
-            "network_context": types.Schema(
-                type=types.Type.OBJECT,
-                description="외부 공격 가능성 판단 근거",
-                properties={
-                    "public_ip":          types.Schema(type=types.Type.STRING,  description="IMDS 상 퍼블릭 IPv4. 없으면 빈 문자열."),
-                    "listening_ports":    types.Schema(type=types.Type.ARRAY,   description="LISTEN 상태 포트 번호 목록", items=types.Schema(type=types.Type.INTEGER)),
-                    "is_internet_facing": types.Schema(type=types.Type.BOOLEAN, description="public_ip 유무로 결정"),
-                },
-            ),
-            "security_context": types.Schema(
-                type=types.Type.OBJECT,
-                description="폭발 반경 / 실행 권한 컨텍스트",
-                properties={
-                    "attached_iam_role": types.Schema(type=types.Type.STRING,  description="EC2 인스턴스 프로파일 이름 (없으면 빈 문자열)"),
-                    "running_as_root":   types.Schema(type=types.Type.ARRAY,   description="root 로 실행 중인 취약 서비스의 comm 이름 (예: nginx, java)", items=types.Schema(type=types.Type.STRING)),
-                    "imds_v2_enforced":  types.Schema(type=types.Type.BOOLEAN, description="IMDSv2 강제 여부 (SSRF 방어 지표)"),
-                    "selinux_enforced":  types.Schema(type=types.Type.BOOLEAN, description="SELinux Enforcing 여부"),
-                },
-            ),
-            "data_classification": types.Schema(
-                type=types.Type.STRING,
-                description="태그 기반 데이터 분류 (예: PII, Payment, Internal). 불확실하면 'unknown'",
-            ),
-        },
-        required=["installed_software"],
-    ),
-)
-
-ANSWER_QUERY_DECL = types.FunctionDeclaration(
-    name="answer_query",
-    description="질의 응답 모드 종료 시 호출. 다른 Agent의 질문에 대한 최종 답변을 전달한다.",
-    parameters=types.Schema(
-        type=types.Type.OBJECT,
-        properties={
-            "answer": types.Schema(type=types.Type.STRING, description="질문에 대한 짧고 명확한 답변"),
-            "evidence": types.Schema(type=types.Type.ARRAY, description="답변 근거가 된 명령어 출력 또는 파일 경로", items=types.Schema(type=types.Type.STRING)),
-            "confidence": types.Schema(type=types.Type.STRING, description="confidence: high / medium / low"),
-        },
-        required=["answer", "confidence"],
-    ),
-)
-
-COLLECT_TOOLS = types.Tool(
-    function_declarations=[RUN_COMMAND_DECL, READ_FILE_DECL, SAVE_RESULT_DECL]
-)
-
-QUERY_TOOLS = types.Tool(
-    function_declarations=[RUN_COMMAND_DECL, READ_FILE_DECL, ANSWER_QUERY_DECL]
-)
+# save_result / answer_query 의 인자는 strands 가 LLM 호출 결과를 dict 로 그대로
+# 전달하므로 Pydantic 모델 강제 검증 대신 시스템 프롬프트로 형식을 안내한다.
+# (중첩 Pydantic 스키마는 LLM 이 종종 인자를 비워서 호출하는 회귀가 관찰됨)
 
 
 # ---------------------------------------------------------------------------
@@ -225,72 +140,132 @@ def _execute_read_file(path: str) -> str:
 
 
 def _ssm_run_command(instance_id: str, command: str, region: str, timeout: int = SSM_MAX_WAIT) -> str:
-    """AWS SSM send-command 로 EC2 에 명령을 원격 실행하고 결과를 가져온다."""
+    """AWS SSM send-command 로 EC2 에 명령을 원격 실행하고 결과를 가져온다 (boto3)."""
     if _BLOCKED.search(command):
         return f"[BLOCKED] 허용되지 않는 명령어: {command}"
-    try:
-        params = json.dumps({"commands": [command]})
-        send = subprocess.run(
-            ["aws", "ssm", "send-command",
-             "--instance-ids", instance_id,
-             "--document-name", "AWS-RunShellScript",
-             "--parameters", params,
-             "--region", region,
-             "--query", "Command.CommandId",
-             "--output", "text"],
-            capture_output=True, timeout=15, text=True,
-        )
-        if send.returncode != 0:
-            msg = (send.stderr or send.stdout).strip()
-            return f"[SSM ERROR] send-command 실패: {msg}"
-        cmd_id = send.stdout.strip()
 
-        deadline = time.time() + timeout
-        last_status = "Pending"
-        while time.time() < deadline:
-            time.sleep(SSM_POLL_INTERVAL)
-            inv = subprocess.run(
-                ["aws", "ssm", "get-command-invocation",
-                 "--command-id", cmd_id,
-                 "--instance-id", instance_id,
-                 "--region", region,
-                 "--output", "json"],
-                capture_output=True, timeout=10, text=True,
-            )
-            if inv.returncode != 0:
-                # 실행 시작 전이면 InvocationDoesNotExist 가 날 수 있음 → 재시도
-                continue
-            data = json.loads(inv.stdout)
-            status = data.get("Status", "")
-            last_status = status
-            if status in ("Success", "Failed", "Cancelled", "TimedOut"):
-                stdout = (data.get("StandardOutputContent") or "").rstrip()
-                stderr = (data.get("StandardErrorContent") or "").rstrip()
-                combined = "\n".join(s for s in [stdout, stderr] if s).strip()
-                return _sanitize_output(combined)
-        return f"[SSM TIMEOUT] {timeout}초 초과 (status={last_status})"
-    except FileNotFoundError:
-        return "[ERROR] aws CLI 가 설치되지 않음 (brew install awscli)"
-    except subprocess.TimeoutExpired:
-        return "[ERROR] aws SSM 호출 자체가 타임아웃"
+    ssm = _client("ssm", region)
+    try:
+        send = ssm.send_command(
+            InstanceIds=[instance_id],
+            DocumentName="AWS-RunShellScript",
+            Parameters={"commands": [command]},
+        )
+        cmd_id = send["Command"]["CommandId"]
+    except ClientError as e:
+        return f"[SSM ERROR] send-command 실패: {e}"
     except Exception as e:
         return f"[ERROR] {e}"
+
+    deadline = time.time() + timeout
+    last_status = "Pending"
+    while time.time() < deadline:
+        time.sleep(SSM_POLL_INTERVAL)
+        try:
+            data = ssm.get_command_invocation(CommandId=cmd_id, InstanceId=instance_id)
+        except ClientError as e:
+            # 실행 시작 전이면 InvocationDoesNotExist → 재시도
+            if e.response.get("Error", {}).get("Code") == "InvocationDoesNotExist":
+                continue
+            return f"[SSM ERROR] {e}"
+        status = data.get("Status", "")
+        last_status = status
+        if status in ("Success", "Failed", "Cancelled", "TimedOut"):
+            stdout = (data.get("StandardOutputContent") or "").rstrip()
+            stderr = (data.get("StandardErrorContent") or "").rstrip()
+            combined = "\n".join(s for s in [stdout, stderr] if s).strip()
+            return _sanitize_output(combined)
+    return f"[SSM TIMEOUT] {timeout}초 초과 (status={last_status})"
 
 
 def _ssm_read_file(instance_id: str, path: str, region: str) -> str:
     return _ssm_run_command(instance_id, f"cat {shlex.quote(path)}", region)
 
 
-def dispatch_tool(name: str, args: dict, instance_id: str | None = None, region: str = DEFAULT_REGION) -> str:
-    if name == "run_command":
-        if instance_id:
-            return _ssm_run_command(instance_id, args["command"], region)
-        return _execute_run_command(args["command"])
-    if name == "read_file":
-        if instance_id:
-            return _ssm_read_file(instance_id, args["path"], region)
-        return _execute_read_file(args["path"])
-    return f"[ERROR] 알 수 없는 도구: {name}"
+# ---------------------------------------------------------------------------
+# strands @tool — 에이전트 루프에서 LLM 이 호출하는 함수
+# ---------------------------------------------------------------------------
+
+@tool
+def run_command(command: str) -> str:
+    """EC2 인스턴스에서 읽기/조회 목적의 shell 명령어를 실행한다.
+    파일 삭제·프로세스 종료 등 파괴적 명령은 자동 차단된다.
+
+    Args:
+        command: 실행할 shell 명령어 (bash -c 로 실행됨).
+    """
+    instance_id = _runtime_state.get("instance_id")
+    region = _runtime_state.get("region", DEFAULT_REGION)
+    if instance_id:
+        return _ssm_run_command(instance_id, command, region)
+    return _execute_run_command(command)
+
+
+@tool
+def read_file(path: str) -> str:
+    """파일 경로를 받아 텍스트 내용을 반환한다.
+
+    Args:
+        path: 읽을 파일의 절대 경로.
+    """
+    instance_id = _runtime_state.get("instance_id")
+    region = _runtime_state.get("region", DEFAULT_REGION)
+    if instance_id:
+        return _ssm_read_file(instance_id, path, region)
+    return _execute_read_file(path)
+
+
+@tool
+def save_result(
+    installed_software: list,
+    network_context: dict,
+    security_context: dict,
+    data_classification: str = "unknown",
+) -> str:
+    """수집 모드 종료 시 반드시 한 번 호출. 자산 수집 결과를 저장한다.
+    호출 후에는 추가 도구 호출 없이 짧은 종료 메시지로 응답해야 한다.
+
+    Args:
+        installed_software: payload 대상 소프트웨어 탐지 결과 — 각 항목은
+            {"vendor": str, "product": str, "version": str, "cpe": str, "source_path"?: str}.
+            대상 소프트웨어가 없으면 빈 리스트 [].
+        network_context: 네트워크 컨텍스트 —
+            {"public_ip": str, "listening_ports": list[int], "is_internet_facing": bool}.
+        security_context: 보안 컨텍스트 —
+            {"attached_iam_role": str, "running_as_root": list[str],
+             "imds_v2_enforced": bool, "selinux_enforced": bool}.
+        data_classification: 태그 기반 데이터 분류 (PII / Payment / Internal / unknown).
+    """
+    _runtime_state["collect_result"] = {
+        "installed_software": installed_software or [],
+        "network_context": network_context or {
+            "public_ip": "", "listening_ports": [], "is_internet_facing": False,
+        },
+        "security_context": security_context or {
+            "attached_iam_role": "", "running_as_root": [],
+            "imds_v2_enforced": False, "selinux_enforced": False,
+        },
+        "data_classification": data_classification,
+    }
+    return "COLLECTION_SAVED — 추가 도구 호출 없이 짧게 '수집 완료' 라고 응답해 주세요."
+
+
+@tool
+def answer_query(answer: str, evidence: list, confidence: str = "low") -> str:
+    """질의 응답 모드 종료 시 반드시 한 번 호출. 답변을 저장한다.
+    호출 후에는 추가 도구 호출 없이 짧은 종료 메시지로 응답해야 한다.
+
+    Args:
+        answer: 질문에 대한 짧고 명확한 답변.
+        evidence: 답변 근거가 된 명령어 출력 또는 파일 경로 문자열 리스트.
+        confidence: high / medium / low 중 하나.
+    """
+    _runtime_state["query_result"] = {
+        "answer": answer,
+        "evidence": evidence or [],
+        "confidence": confidence,
+    }
+    return "ANSWER_RECORDED — 추가 도구 호출 없이 짧게 '답변 완료' 라고 응답해 주세요."
 
 
 # ---------------------------------------------------------------------------
@@ -366,32 +341,16 @@ def get_hostname_remote(instance_id: str, region: str) -> str:
 # AWS EC2 Discovery (auto-discover 모드 + 자동 티어 판정)
 # ---------------------------------------------------------------------------
 
-def _aws_ec2(command: list, region: str) -> dict:
-    """aws ec2 <subcommand> 호출하고 JSON 파싱."""
-    try:
-        r = subprocess.run(
-            ["aws", "ec2"] + command + ["--region", region, "--output", "json"],
-            capture_output=True, timeout=30, text=True,
-        )
-        if r.returncode != 0:
-            raise RuntimeError(
-                f"aws ec2 {' '.join(command)} 실패: {(r.stderr or r.stdout).strip()}"
-            )
-        return json.loads(r.stdout or "{}")
-    except FileNotFoundError:
-        raise RuntimeError("aws CLI 가 설치되지 않음 (brew install awscli)")
-    except subprocess.TimeoutExpired:
-        raise RuntimeError(f"aws ec2 {' '.join(command)} 타임아웃")
-
-
 def discover_vpc_instances(vpc_id: str, region: str) -> list:
     """VPC 내 running EC2 인스턴스 목록을 정규화해 반환."""
-    data = _aws_ec2([
-        "describe-instances",
-        "--filters",
-        f"Name=vpc-id,Values={vpc_id}",
-        "Name=instance-state-name,Values=running",
-    ], region)
+    ec2 = _client("ec2", region)
+    try:
+        data = ec2.describe_instances(Filters=[
+            {"Name": "vpc-id", "Values": [vpc_id]},
+            {"Name": "instance-state-name", "Values": ["running"]},
+        ])
+    except ClientError as e:
+        raise RuntimeError(f"ec2:DescribeInstances 실패: {e}")
 
     instances = []
     for resv in data.get("Reservations", []):
@@ -420,27 +379,35 @@ def classify_subnet(subnet_id: str, region: str) -> str:
     if subnet_id in _subnet_cache:
         return _subnet_cache[subnet_id]
 
+    ec2 = _client("ec2", region)
+
     # 1) 서브넷에 명시적으로 연결된 라우트 테이블
-    data = _aws_ec2([
-        "describe-route-tables",
-        "--filters", f"Name=association.subnet-id,Values={subnet_id}",
-    ], region)
+    try:
+        data = ec2.describe_route_tables(Filters=[
+            {"Name": "association.subnet-id", "Values": [subnet_id]},
+        ])
+    except ClientError as e:
+        raise RuntimeError(f"ec2:DescribeRouteTables 실패: {e}")
     tables = data.get("RouteTables", [])
 
     # 2) 없으면 VPC의 main 라우트 테이블
     if not tables:
-        subnet_data = _aws_ec2(["describe-subnets", "--subnet-ids", subnet_id], region)
+        try:
+            subnet_data = ec2.describe_subnets(SubnetIds=[subnet_id])
+        except ClientError as e:
+            raise RuntimeError(f"ec2:DescribeSubnets 실패: {e}")
         subnets = subnet_data.get("Subnets", [])
         if not subnets:
             _subnet_cache[subnet_id] = "unknown"
             return "unknown"
         vpc_id = subnets[0].get("VpcId", "")
-        rt_data = _aws_ec2([
-            "describe-route-tables",
-            "--filters",
-            f"Name=vpc-id,Values={vpc_id}",
-            "Name=association.main,Values=true",
-        ], region)
+        try:
+            rt_data = ec2.describe_route_tables(Filters=[
+                {"Name": "vpc-id", "Values": [vpc_id]},
+                {"Name": "association.main", "Values": ["true"]},
+            ])
+        except ClientError as e:
+            raise RuntimeError(f"ec2:DescribeRouteTables(main) 실패: {e}")
         tables = rt_data.get("RouteTables", [])
 
     routes = tables[0].get("Routes", []) if tables else []
@@ -501,7 +468,11 @@ def build_reachability(instances: list, region: str) -> list:
     if not all_sg_ids:
         return []
 
-    data = _aws_ec2(["describe-security-groups", "--group-ids"] + all_sg_ids, region)
+    ec2 = _client("ec2", region)
+    try:
+        data = ec2.describe_security_groups(GroupIds=all_sg_ids)
+    except ClientError as e:
+        raise RuntimeError(f"ec2:DescribeSecurityGroups 실패: {e}")
     sgs = {sg["GroupId"]: sg for sg in data.get("SecurityGroups", [])}
 
     sg_to_tiers: dict = {}
@@ -539,51 +510,6 @@ def build_reachability(instances: list, region: str) -> list:
 
 
 # ---------------------------------------------------------------------------
-# 공통 Gemini 호출 래퍼 (fallback + 재시도)
-# ---------------------------------------------------------------------------
-
-def _generate_with_fallback(client: genai.Client, contents, config):
-    """기본 모델 → 503 시 재시도 → 차순위 모델로 자동 전환.
-    한 번 성공한 모델은 세션 내내 재사용하여 불필요한 404 호출을 회피한다."""
-    if _active_model["name"]:
-        candidates = [_active_model["name"]]
-    else:
-        candidates = [MODEL_NAME] + MODEL_FALLBACKS
-
-    last_exc = None
-    for model_candidate in candidates:
-        for attempt in range(MAX_RETRIES):
-            try:
-                resp = client.models.generate_content(
-                    model=model_candidate, contents=contents, config=config,
-                )
-                _active_model["name"] = model_candidate
-                return resp
-            except Exception as e:
-                last_exc = e
-                msg = str(e)
-                transient = "503" in msg or "UNAVAILABLE" in msg
-                not_found = "404" in msg or "NOT_FOUND" in msg or "no longer available" in msg
-                if not_found:
-                    print(f"[AGENT] {model_candidate} 사용 불가(404) — 다음 모델로 전환")
-                    break
-                if transient:
-                    if attempt < MAX_RETRIES - 1:
-                        print(f"[AGENT] {model_candidate} 503 — {RETRY_DELAY}초 후 재시도 ({attempt + 1}/{MAX_RETRIES})")
-                        time.sleep(RETRY_DELAY)
-                    else:
-                        print(f"[AGENT] {model_candidate} 사용 불가 — 다음 모델로 전환")
-                else:
-                    raise
-    # 캐시된 모델이 실패한 경우 캐시 비우고 전체 목록 재시도
-    if _active_model["name"]:
-        print(f"[AGENT] 캐시된 모델 {_active_model['name']} 실패 — 전체 fallback 재탐색")
-        _active_model["name"] = None
-        return _generate_with_fallback(client, contents, config)
-    raise RuntimeError(f"모든 모델 시도 실패: {last_exc}")
-
-
-# ---------------------------------------------------------------------------
 # [수집 모드] 프롬프트 & 루프
 # ---------------------------------------------------------------------------
 
@@ -618,8 +544,8 @@ vendor/product 를 추출하세요. 이 인스턴스에 해당 소프트웨어�
 1. **같은 명령 반복 금지** — 이전 출력을 기억하세요.
 2. **HTML/404 응답은 "그 기능 비활성"이라는 뜻** — 재시도하지 말고 해당 필드를 `""`/`"unknown"`/`false` 로 두고 **다음으로 넘어가세요**.
 3. **installed_software 를 하나라도 확정했으면**, 나머지가 막히더라도 **지체 없이 save_result 호출**.
-4. **텍스트 응답으로 종료 금지** — 최종 출력은 반드시 `save_result` 함수 호출.
-5. 최대 {MAX_AGENT_TURNS} 턴 안에 종료.
+4. **save_result 를 호출하지 않고 텍스트로만 종료하는 것은 절대 금지** — 그 어떤 상황에서도 종료 전에는 반드시 `save_result` 도구를 정확히 한 번 호출해야 합니다. 부족한 필드는 빈 문자열/빈 배열/false 로 두면 됩니다.
+5. save_result 호출 후에는 추가 도구 호출 없이 짧은 종료 메시지를 텍스트로 응답해 종료하세요.
 
 ## 결과물 스키마 (save_result 인자 — 형식은 엄수)
 
@@ -667,77 +593,37 @@ vendor/product 를 추출하세요. 이 인스턴스에 해당 소프트웨어�
 """
 
 
-def run_collect_agent(payload: dict, api_key: str,
-                      instance_id: str | None = None,
+def run_collect_agent(payload: dict,
+                      instance_id: Optional[str] = None,
                       region: str = DEFAULT_REGION) -> dict:
-    """수집 모드 에이전트 루프. save_result 의 payload dict 를 그대로 반환."""
-    client = genai.Client(api_key=api_key)
-    config = types.GenerateContentConfig(
-        system_instruction=build_collect_system_prompt(payload),
-        tools=[COLLECT_TOOLS],
-        tool_config=types.ToolConfig(
-            function_calling_config=types.FunctionCallingConfig(mode="AUTO")
-        ),
-    )
+    """수집 모드 (strands Agent). save_result 가 채운 dict 를 반환."""
+    _runtime_state["instance_id"] = instance_id
+    _runtime_state["region"] = region
+    _runtime_state["collect_result"] = None
 
-    history: list[types.Content] = [types.Content(
-        role="user",
-        parts=[types.Part(text=(
-            "payload 분석을 시작합니다. "
-            "Phase 1~4 를 모두 조사한 뒤 save_result 를 한 번 호출해 주세요."
-        ))],
-    )]
-
+    system_prompt = build_collect_system_prompt(payload)
     exec_mode = f"SSM→{instance_id}" if instance_id else "LOCAL"
-    print(f"[AGENT] 수집 모드 시작 — 모델: {MODEL_NAME}, 실행: {exec_mode}, 최대 턴: {MAX_AGENT_TURNS}")
+    print(f"[AGENT] 수집 모드 시작 — 모델: {BEDROCK_MODEL_ID}, 실행: {exec_mode}")
 
-    recovery_attempted = False
-    for turn in range(MAX_AGENT_TURNS):
-        response = _generate_with_fallback(client, history, config)
-        candidate = response.candidates[0]
+    agent = Agent(
+        model=BEDROCK_MODEL_ID,
+        system_prompt=system_prompt,
+        tools=[run_command, read_file, save_result],
+    )
+    agent("payload 분석을 시작합니다. 조사를 마치면 save_result 를 한 번 호출하고 종료해 주세요.")
 
-        if candidate.content is None or candidate.content.parts is None:
-            print(f"[AGENT] 턴 {turn + 1}: 응답 비어 있음 (finish_reason={candidate.finish_reason})")
-            if recovery_attempted:
-                print(f"[AGENT] 복구 재시도도 실패 — 종료")
-                break
-            recovery_attempted = True
-            print(f"[AGENT] 복구 시도 — 지금까지 모은 정보로 save_result 호출 유도")
-            history.append(types.Content(role="user", parts=[types.Part(text=(
-                "이전 응답이 깨졌습니다. 추가 조사 없이, 지금까지 확인한 정보만으로 "
-                "**즉시 save_result 를 한 번 호출**해 주세요. "
-                "부족한 필드는 빈 문자열 \"\" 또는 \"unknown\" 으로 두세요."
-            ))]))
-            continue
+    if _runtime_state["collect_result"] is None:
+        # LLM 이 save_result 호출 없이 종료한 경우 — 동일 대화에 이어 강제 호출 유도
+        print("[AGENT] save_result 누락 — 강제 호출 복구 시도")
+        agent(
+            "지금까지 조사한 내용으로 즉시 save_result 를 한 번 호출해 주세요. "
+            "확인하지 못한 필드는 빈 문자열/빈 배열/false 로 두세요. "
+            "save_result 호출 후 짧은 종료 메시지로 종료해 주세요."
+        )
 
-        history.append(candidate.content)
-
-        fn_calls = [p.function_call for p in candidate.content.parts if p.function_call]
-        if not fn_calls:
-            text = "".join(p.text for p in candidate.content.parts if hasattr(p, "text"))
-            print(f"[AGENT] 턴 {turn + 1}: 텍스트 응답 — {text[:200]}")
-            break
-
-        tool_responses: list[types.Part] = []
-        for fc in fn_calls:
-            name = fc.name
-            args = dict(fc.args)
-            print(f"[AGENT] 턴 {turn + 1}: {name}({json.dumps(args, ensure_ascii=False)[:120]})")
-
-            if name == "save_result":
-                print(f"[AGENT] 수집 완료 — 결과 수신")
-                return args
-            else:
-                result = dispatch_tool(name, args, instance_id, region)
-                preview = result[:300].replace("\n", " ")
-                print(f"         → {preview}{'...' if len(result) > 300 else ''}")
-                tool_responses.append(types.Part.from_function_response(
-                    name=name, response={"output": result}
-                ))
-
-        history.append(types.Content(role="user", parts=tool_responses))
-
-    print(f"[AGENT] 최대 턴 도달 — 수집 미완료")
+    if _runtime_state["collect_result"] is not None:
+        return _runtime_state["collect_result"]
+    print("[AGENT] 복구 실패 — 빈 결과 반환")
     return {"installed_software": []}
 
 
@@ -759,63 +645,169 @@ EC2 에서 직접 추가 조사한 뒤 answer_query 를 호출해 답변하세�
 1. 이미 asset_info 에 답이 있으면 추가 명령 없이 바로 answer_query 를 호출.
 2. 없으면 최소한의 명령만 실행해 확인한 뒤 answer_query.
 3. answer 는 간결한 한 줄, evidence 에는 근거 명령/파일, confidence 는 high/medium/low 중 하나.
+4. **answer_query 를 호출하지 않고 텍스트로만 종료하는 것은 절대 금지** — 종료 전 반드시 answer_query 를 정확히 한 번 호출해야 합니다. 확신이 부족하면 confidence='low' 로 두면 됩니다.
+5. answer_query 호출 후에는 추가 도구 호출 없이 짧은 종료 메시지를 텍스트로 응답해 종료하세요.
 """
 
 
-def run_query_agent(asset_info: dict, query: str, api_key: str,
-                    instance_id: str | None = None,
+def run_query_agent(asset_info: dict, query: str,
+                    instance_id: Optional[str] = None,
                     region: str = DEFAULT_REGION) -> dict:
-    client = genai.Client(api_key=api_key)
-    config = types.GenerateContentConfig(
-        system_instruction=build_query_system_prompt(asset_info),
-        tools=[QUERY_TOOLS],
-        tool_config=types.ToolConfig(
-            function_calling_config=types.FunctionCallingConfig(mode="AUTO")
-        ),
-    )
+    """질의 응답 모드 (strands Agent). answer_query 가 채운 dict 를 반환."""
+    _runtime_state["instance_id"] = instance_id
+    _runtime_state["region"] = region
+    _runtime_state["query_result"] = None
 
-    history: list[types.Content] = [types.Content(
-        role="user",
-        parts=[types.Part(text=f"[질문] {query}")],
-    )]
-
+    system_prompt = build_query_system_prompt(asset_info)
     exec_mode = f"SSM→{instance_id}" if instance_id else "LOCAL"
     print(f"[AGENT] 질의 응답 모드 ({exec_mode}) — 질문: {query}")
 
-    for turn in range(MAX_AGENT_TURNS):
-        response = _generate_with_fallback(client, history, config)
-        candidate = response.candidates[0]
+    agent = Agent(
+        model=BEDROCK_MODEL_ID,
+        system_prompt=system_prompt,
+        tools=[run_command, read_file, answer_query],
+    )
+    agent(f"[질문] {query}")
 
-        if candidate.content is None or candidate.content.parts is None:
-            print(f"[AGENT] 턴 {turn + 1}: 응답 비어 있음 (finish_reason={candidate.finish_reason})")
-            break
+    if _runtime_state["query_result"] is None:
+        # LLM 이 answer_query 호출 없이 종료한 경우 강제 호출 유도
+        print("[AGENT] answer_query 누락 — 강제 호출 복구 시도")
+        agent(
+            "지금까지 조사한 내용으로 즉시 answer_query 를 한 번 호출해 주세요. "
+            "확신이 부족하면 confidence='low' 로 두고 답변하세요. "
+            "answer_query 호출 후 짧은 종료 메시지로 종료해 주세요."
+        )
 
-        history.append(candidate.content)
+    if _runtime_state["query_result"] is not None:
+        return _runtime_state["query_result"]
+    return {"answer": "(응답 생성 실패)", "evidence": [], "confidence": "low"}
 
-        fn_calls = [p.function_call for p in candidate.content.parts if p.function_call]
-        if not fn_calls:
-            text = "".join(p.text for p in candidate.content.parts if hasattr(p, "text"))
-            return {"answer": text, "evidence": [], "confidence": "low"}
 
-        tool_responses: list[types.Part] = []
-        for fc in fn_calls:
-            name = fc.name
-            args = dict(fc.args)
-            print(f"[AGENT] 턴 {turn + 1}: {name}({json.dumps(args, ensure_ascii=False)[:120]})")
+# ---------------------------------------------------------------------------
+# 공용 헬퍼: 자산 수집 진입점 (CLI / AgentCore Runtime 공용)
+# Bedrock 인증은 IAM Role 기반 — 별도 키 헬퍼 불필요.
+# ---------------------------------------------------------------------------
 
-            if name == "answer_query":
-                return args
-            else:
-                result = dispatch_tool(name, args, instance_id, region)
-                preview = result[:300].replace("\n", " ")
-                print(f"         → {preview}{'...' if len(result) > 300 else ''}")
-                tool_responses.append(types.Part.from_function_response(
-                    name=name, response={"output": result}
-                ))
+def collect_single_asset(
+    payload: dict,
+    instance_id: str | None = None,
+    region: str = DEFAULT_REGION,
+    environment: str = "production",
+    network_exposure: str = "public",
+    business_criticality: str = "high",
+) -> dict:
+    """단일 인스턴스 자산 수집.
 
-        history.append(types.Content(role="user", parts=tool_responses))
+    instance_id 가 있으면 SSM 으로 원격 실행, 없으면 로컬 머신에서 실행.
+    """
+    if instance_id:
+        actual_id = instance_id
+        hostname = get_hostname_remote(instance_id, region)
+        os_info = get_os_info_remote(instance_id, region)
+    else:
+        actual_id = get_instance_id()
+        hostname = socket.gethostname()
+        os_info = get_os_info()
 
-    return {"answer": "(응답 생성 실패 — 최대 턴 도달)", "evidence": [], "confidence": "low"}
+    collected = run_collect_agent(
+        payload, instance_id=instance_id, region=region,
+    )
+
+    return {
+        "asset_id": actual_id,
+        "hostname": hostname,
+        "metadata": {
+            "environment": environment,
+            "network_exposure": network_exposure,
+            "business_criticality": business_criticality,
+            "data_classification": collected.get("data_classification", "unknown"),
+        },
+        "network_context": collected.get("network_context", {
+            "public_ip": "", "listening_ports": [], "is_internet_facing": False,
+        }),
+        "security_context": collected.get("security_context", {
+            "attached_iam_role": "", "running_as_root": [],
+            "imds_v2_enforced": False, "selinux_enforced": False,
+        }),
+        "os_info": os_info,
+        "installed_software": collected.get("installed_software", []),
+    }
+
+
+def run_auto_discover(
+    payload: dict,
+    vpc_id: str,
+    region: str = DEFAULT_REGION,
+    environment: str = "production",
+    business_criticality: str = "high",
+) -> dict:
+    """VPC 내 running EC2 전체 자동 탐색 + 자산 수집 + reachability 산출."""
+    print(f"[DISCOVERY] VPC {vpc_id} 탐색 중 (region={region})...")
+    instances = discover_vpc_instances(vpc_id, region)
+
+    if not instances:
+        raise RuntimeError(f"VPC {vpc_id} 에 running 상태의 EC2 가 없습니다.")
+
+    print(f"[DISCOVERY] {len(instances)}개 인스턴스 발견")
+    for inst in instances:
+        inst["tier"] = extract_tier(inst["tags"], inst["name"])
+        inst["network_exposure"] = classify_subnet(inst["subnet_id"], region)
+        print(f"  - {inst['instance_id']} "
+              f"name={inst['name'] or '-':<20} "
+              f"tier={inst['tier']:<7} "
+              f"exposure={inst['network_exposure']:<8} "
+              f"az={inst['availability_zone']}")
+
+    try:
+        reachability = build_reachability(instances, region)
+    except RuntimeError as e:
+        print(f"[WARN] reachability 수집 실패: {e}")
+        reachability = []
+    print(f"[DISCOVERY] reachability 규칙 {len(reachability)}건")
+
+    assets = []
+    for idx, inst in enumerate(instances, 1):
+        iid = inst["instance_id"]
+        print(f"\n===== [{idx}/{len(instances)}] {iid} ({inst['tier']}) 자산 수집 =====")
+        collected = run_collect_agent(payload, instance_id=iid, region=region)
+        os_info = get_os_info_remote(iid, region)
+        hostname = get_hostname_remote(iid, region)
+
+        data_class = (
+            inst["tags"].get("DataClassification")
+            or collected.get("data_classification")
+            or default_data_classification(inst["tier"])
+        )
+
+        assets.append({
+            "asset_id": iid,
+            "hostname": hostname,
+            "tier": inst["tier"],
+            "availability_zone": inst["availability_zone"],
+            "subnet_id": inst["subnet_id"],
+            "private_ip": inst["private_ip"],
+            "public_ip": inst["public_ip"],
+            "security_groups": inst["security_groups"],
+            "iam_instance_profile": inst["iam_instance_profile"],
+            "metadata": {
+                "environment": environment,
+                "network_exposure": inst["network_exposure"],
+                "business_criticality": business_criticality,
+                "data_classification": data_class,
+            },
+            "network_context": collected.get("network_context", {}),
+            "security_context": collected.get("security_context", {}),
+            "os_info": os_info,
+            "installed_software": collected.get("installed_software", []),
+        })
+
+    return {
+        "vpc_id": vpc_id,
+        "region": region,
+        "collected_at": datetime.now(timezone.utc).isoformat(),
+        "assets": assets,
+        "reachability": reachability,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -824,7 +816,7 @@ def run_query_agent(asset_info: dict, query: str, api_key: str,
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Gemini AI Agent 기반 자산 매칭 에이전트 (수집·질의 이중 모드)."
+        description="Bedrock(Claude) AI Agent 기반 자산 매칭 에이전트 (수집·질의 이중 모드)."
     )
     parser.add_argument("--payload", default=None, help="[수집 모드] payload.json 경로")
     parser.add_argument("--query",   default=None, help="[질의 응답 모드] 다른 Agent가 보낸 질문 텍스트")
@@ -836,8 +828,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--criticality", dest="business_criticality", default="high",
                         choices=["critical", "high", "medium", "low"])
     parser.add_argument("--output", default="asset_info.json", help="[수집 모드] 출력 파일 경로")
-    parser.add_argument("--api-key", default=None,
-                        help="Gemini API 키 (미지정 시 GEMINI_API_KEY 환경변수 사용)")
     parser.add_argument("--instance-id", default=None,
                         help="원격 EC2 인스턴스 ID (예: i-0123abcd). 지정 시 AWS SSM 으로 원격 실행.")
     parser.add_argument("--region", default=DEFAULT_REGION,
@@ -852,11 +842,6 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
-    api_key = args.api_key or os.environ.get("GEMINI_API_KEY", "")
-    if not api_key:
-        print("[ERROR] Gemini API 키가 필요합니다. --api-key 또는 GEMINI_API_KEY 환경변수를 설정하세요.")
-        raise SystemExit(1)
-
     # ----- 질의 응답 모드 -----
     if args.query:
         asset_path = Path(args.asset_info)
@@ -864,7 +849,7 @@ def main() -> None:
             print(f"[ERROR] asset_info 파일 없음: {asset_path}")
             raise SystemExit(1)
         asset_info = json.loads(asset_path.read_text())
-        result = run_query_agent(asset_info, args.query, api_key,
+        result = run_query_agent(asset_info, args.query,
                                  instance_id=args.instance_id, region=args.region)
         print("\n[RESULT]")
         print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -889,118 +874,36 @@ def main() -> None:
             print("[ERROR] --auto-discover 사용 시 --vpc-id 가 필요합니다.")
             raise SystemExit(1)
 
-        print(f"[DISCOVERY] VPC {args.vpc_id} 탐색 중 (region={args.region})...")
         try:
-            instances = discover_vpc_instances(args.vpc_id, args.region)
+            infra = run_auto_discover(
+                payload, args.vpc_id,
+                region=args.region,
+                environment=args.environment,
+                business_criticality=args.business_criticality,
+            )
         except RuntimeError as e:
             print(f"[ERROR] {e}")
             raise SystemExit(1)
 
-        if not instances:
-            print("[ERROR] 대상 VPC 에 running 상태의 EC2 가 없습니다.")
-            raise SystemExit(1)
-
-        print(f"[DISCOVERY] {len(instances)}개 인스턴스 발견")
-        for inst in instances:
-            inst["tier"] = extract_tier(inst["tags"], inst["name"])
-            inst["network_exposure"] = classify_subnet(inst["subnet_id"], args.region)
-            print(f"  - {inst['instance_id']} "
-                  f"name={inst['name'] or '-':<20} "
-                  f"tier={inst['tier']:<7} "
-                  f"exposure={inst['network_exposure']:<8} "
-                  f"az={inst['availability_zone']}")
-
-        try:
-            reachability = build_reachability(instances, args.region)
-        except RuntimeError as e:
-            print(f"[WARN] reachability 수집 실패: {e}")
-            reachability = []
-        print(f"[DISCOVERY] reachability 규칙 {len(reachability)}건")
-
-        assets = []
-        for idx, inst in enumerate(instances, 1):
-            iid = inst["instance_id"]
-            print(f"\n===== [{idx}/{len(instances)}] {iid} ({inst['tier']}) 자산 수집 =====")
-            collected = run_collect_agent(payload, api_key,
-                                          instance_id=iid, region=args.region)
-            os_info = get_os_info_remote(iid, args.region)
-            hostname = get_hostname_remote(iid, args.region)
-
-            data_class = (
-                inst["tags"].get("DataClassification")
-                or collected.get("data_classification")
-                or default_data_classification(inst["tier"])
-            )
-
-            assets.append({
-                "asset_id": iid,
-                "hostname": hostname,
-                "tier": inst["tier"],
-                "availability_zone": inst["availability_zone"],
-                "subnet_id": inst["subnet_id"],
-                "private_ip": inst["private_ip"],
-                "public_ip": inst["public_ip"],
-                "security_groups": inst["security_groups"],
-                "iam_instance_profile": inst["iam_instance_profile"],
-                "metadata": {
-                    "environment": args.environment,
-                    "network_exposure": inst["network_exposure"],
-                    "business_criticality": args.business_criticality,
-                    "data_classification": data_class,
-                },
-                "network_context": collected.get("network_context", {}),
-                "security_context": collected.get("security_context", {}),
-                "os_info": os_info,
-                "installed_software": collected.get("installed_software", []),
-            })
-
-        infra = {
-            "vpc_id": args.vpc_id,
-            "region": args.region,
-            "collected_at": datetime.now(timezone.utc).isoformat(),
-            "assets": assets,
-            "reachability": reachability,
-        }
-
         output_path = Path(args.output)
         output_path.write_text(json.dumps(infra, ensure_ascii=False, indent=2))
         print(f"\n[OK] 저장 완료: {output_path.resolve()}")
-        print(f"[SUMMARY] assets={len(assets)}, reachability={len(reachability)}")
+        print(f"[SUMMARY] assets={len(infra['assets'])}, "
+              f"reachability={len(infra['reachability'])}")
         return
 
-    if args.instance_id:
-        instance_id = args.instance_id
-        print(f"[INFO] 원격 모드(SSM) — 대상: {instance_id} / 리전: {args.region}")
-        hostname = get_hostname_remote(instance_id, args.region)
-        os_info = get_os_info_remote(instance_id, args.region)
-    else:
-        instance_id = get_instance_id()
-        hostname = socket.gethostname()
-        os_info = get_os_info()
-    print(f"[INFO] 인스턴스: {instance_id} / 호스트: {hostname} / OS: {os_info}")
+    # ----- 단일 인스턴스 수집 모드 -----
+    exec_mode = f"SSM→{args.instance_id}" if args.instance_id else "LOCAL"
+    print(f"[INFO] 단일 인스턴스 수집 — {exec_mode} / 리전: {args.region}")
 
-    collected = run_collect_agent(payload, api_key,
-                                  instance_id=args.instance_id, region=args.region)
-
-    asset_info = {
-        "asset_id": instance_id,
-        "hostname": hostname,
-        "metadata": {
-            "environment": args.environment,
-            "network_exposure": args.network_exposure,
-            "business_criticality": args.business_criticality,
-            "data_classification": collected.get("data_classification", "unknown"),
-        },
-        "network_context": collected.get("network_context", {
-            "public_ip": "", "listening_ports": [], "is_internet_facing": False,
-        }),
-        "security_context": collected.get("security_context", {
-            "attached_iam_role": "", "running_as_root": [],
-            "imds_v2_enforced": False, "selinux_enforced": False,
-        }),
-        "os_info": os_info,
-        "installed_software": collected.get("installed_software", []),
-    }
+    asset_info = collect_single_asset(
+        payload,
+        instance_id=args.instance_id,
+        region=args.region,
+        environment=args.environment,
+        network_exposure=args.network_exposure,
+        business_criticality=args.business_criticality,
+    )
 
     output_path = Path(args.output)
     output_path.write_text(json.dumps(asset_info, ensure_ascii=False, indent=2))
