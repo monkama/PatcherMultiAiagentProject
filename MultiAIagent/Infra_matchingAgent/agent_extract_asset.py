@@ -52,6 +52,9 @@ TOOL_OUTPUT_LIMIT = 2000  # LLM 에 돌려줄 tool 응답 최대 길이
 DEFAULT_REGION = "ap-northeast-2"
 SSM_POLL_INTERVAL = 1
 SSM_MAX_WAIT = 45
+QUERY_SSM_MAX_WAIT = int(os.environ.get("QUERY_SSM_MAX_WAIT", "20"))
+QUERY_TOOL_CALL_LIMIT = int(os.environ.get("QUERY_TOOL_CALL_LIMIT", "8"))
+QUERY_WALL_TIME_LIMIT = int(os.environ.get("QUERY_WALL_TIME_LIMIT", "90"))
 
 _BLOCKED = re.compile(
     r"\b(rm|rmdir|mv|dd|mkfs|fdisk|kill|killall|reboot|shutdown|halt)\b",
@@ -80,8 +83,14 @@ IMDS_TIMEOUT = 2
 _runtime_state: dict = {
     "instance_id": None,
     "region": DEFAULT_REGION,
+    "mode": "collect",
     "collect_result": None,
     "query_result": None,
+    "tool_call_count": 0,
+    "query_started_at": 0.0,
+    "query_budget_exceeded": False,
+    "query_budget_reason": "",
+    "seen_tool_calls": set(),
 }
 
 
@@ -182,6 +191,38 @@ def _ssm_read_file(instance_id: str, path: str, region: str) -> str:
     return _ssm_run_command(instance_id, f"cat {shlex.quote(path)}", region)
 
 
+def _mark_query_budget_exceeded(reason: str) -> str:
+    _runtime_state["query_budget_exceeded"] = True
+    _runtime_state["query_budget_reason"] = reason
+    return f"[QUERY BUDGET EXCEEDED] {reason}"
+
+
+def _check_query_budget(tool_name: str, tool_input: str) -> str | None:
+    if _runtime_state.get("mode") != "query":
+        return None
+
+    started_at = float(_runtime_state.get("query_started_at") or 0.0)
+    elapsed = time.monotonic() - started_at if started_at else 0.0
+    if elapsed >= QUERY_WALL_TIME_LIMIT:
+        return _mark_query_budget_exceeded(
+            f"총 조사 시간 {QUERY_WALL_TIME_LIMIT}초를 초과했습니다. 현재 증거만으로 답변하거나 확인 불가로 종료하세요."
+        )
+
+    if int(_runtime_state.get("tool_call_count") or 0) >= QUERY_TOOL_CALL_LIMIT:
+        return _mark_query_budget_exceeded(
+            f"도구 호출 상한 {QUERY_TOOL_CALL_LIMIT}회를 초과했습니다. 현재 증거만으로 답변하거나 확인 불가로 종료하세요."
+        )
+
+    signature = f"{tool_name}:{tool_input.strip()}"
+    seen_calls = _runtime_state.setdefault("seen_tool_calls", set())
+    if signature in seen_calls:
+        return "[QUERY SKIP] 이미 같은 도구 요청을 수행했습니다. 다른 증거로 답변을 정리하거나 확인 불가로 종료하세요."
+
+    seen_calls.add(signature)
+    _runtime_state["tool_call_count"] = int(_runtime_state.get("tool_call_count") or 0) + 1
+    return None
+
+
 # ---------------------------------------------------------------------------
 # strands @tool — 에이전트 루프에서 LLM 이 호출하는 함수
 # ---------------------------------------------------------------------------
@@ -194,10 +235,15 @@ def run_command(command: str) -> str:
     Args:
         command: 실행할 shell 명령어 (bash -c 로 실행됨).
     """
+    budget_message = _check_query_budget("run_command", command)
+    if budget_message:
+        return budget_message
+
     instance_id = _runtime_state.get("instance_id")
     region = _runtime_state.get("region", DEFAULT_REGION)
     if instance_id:
-        return _ssm_run_command(instance_id, command, region)
+        timeout = QUERY_SSM_MAX_WAIT if _runtime_state.get("mode") == "query" else SSM_MAX_WAIT
+        return _ssm_run_command(instance_id, command, region, timeout=timeout)
     return _execute_run_command(command)
 
 
@@ -208,10 +254,15 @@ def read_file(path: str) -> str:
     Args:
         path: 읽을 파일의 절대 경로.
     """
+    budget_message = _check_query_budget("read_file", path)
+    if budget_message:
+        return budget_message
+
     instance_id = _runtime_state.get("instance_id")
     region = _runtime_state.get("region", DEFAULT_REGION)
     if instance_id:
-        return _ssm_read_file(instance_id, path, region)
+        timeout = QUERY_SSM_MAX_WAIT if _runtime_state.get("mode") == "query" else SSM_MAX_WAIT
+        return _ssm_run_command(instance_id, f"cat {shlex.quote(path)}", region, timeout=timeout)
     return _execute_read_file(path)
 
 
@@ -599,7 +650,13 @@ def run_collect_agent(payload: dict,
     """수집 모드 (strands Agent). save_result 가 채운 dict 를 반환."""
     _runtime_state["instance_id"] = instance_id
     _runtime_state["region"] = region
+    _runtime_state["mode"] = "collect"
     _runtime_state["collect_result"] = None
+    _runtime_state["tool_call_count"] = 0
+    _runtime_state["query_started_at"] = 0.0
+    _runtime_state["query_budget_exceeded"] = False
+    _runtime_state["query_budget_reason"] = ""
+    _runtime_state["seen_tool_calls"] = set()
 
     system_prompt = build_collect_system_prompt(payload)
     exec_mode = f"SSM→{instance_id}" if instance_id else "LOCAL"
@@ -647,6 +704,8 @@ EC2 에서 직접 추가 조사한 뒤 answer_query 를 호출해 답변하세�
 3. answer 는 간결한 한 줄, evidence 에는 근거 명령/파일, confidence 는 high/medium/low 중 하나.
 4. **answer_query 를 호출하지 않고 텍스트로만 종료하는 것은 절대 금지** — 종료 전 반드시 answer_query 를 정확히 한 번 호출해야 합니다. 확신이 부족하면 confidence='low' 로 두면 됩니다.
 5. answer_query 호출 후에는 추가 도구 호출 없이 짧은 종료 메시지를 텍스트로 응답해 종료하세요.
+6. 질의 응답 모드에는 조사 예산이 있습니다. 같은 명령/파일 재확인 금지, 도구 호출 상한과 시간 상한을 넘기면 더 파고들지 말고 현재까지의 증거로 답변하거나 확인 불가로 종료하세요.
+7. `[QUERY BUDGET EXCEEDED]` 또는 `[QUERY SKIP]` 응답을 받으면 추가 조사 대신 즉시 answer_query 를 호출하세요.
 """
 
 
@@ -656,7 +715,13 @@ def run_query_agent(asset_info: dict, query: str,
     """질의 응답 모드 (strands Agent). answer_query 가 채운 dict 를 반환."""
     _runtime_state["instance_id"] = instance_id
     _runtime_state["region"] = region
+    _runtime_state["mode"] = "query"
     _runtime_state["query_result"] = None
+    _runtime_state["tool_call_count"] = 0
+    _runtime_state["query_started_at"] = time.monotonic()
+    _runtime_state["query_budget_exceeded"] = False
+    _runtime_state["query_budget_reason"] = ""
+    _runtime_state["seen_tool_calls"] = set()
 
     system_prompt = build_query_system_prompt(asset_info)
     exec_mode = f"SSM→{instance_id}" if instance_id else "LOCAL"
@@ -670,6 +735,9 @@ def run_query_agent(asset_info: dict, query: str,
     agent(f"[질문] {query}")
 
     if _runtime_state["query_result"] is None:
+        if _runtime_state.get("query_budget_exceeded"):
+            reason = str(_runtime_state.get("query_budget_reason") or "조사 예산 초과로 확인 불가")
+            return {"answer": "확인할 수 없습니다.", "evidence": [reason], "confidence": "low"}
         # LLM 이 answer_query 호출 없이 종료한 경우 강제 호출 유도
         print("[AGENT] answer_query 누락 — 강제 호출 복구 시도")
         agent(
@@ -680,6 +748,9 @@ def run_query_agent(asset_info: dict, query: str,
 
     if _runtime_state["query_result"] is not None:
         return _runtime_state["query_result"]
+    if _runtime_state.get("query_budget_exceeded"):
+        reason = str(_runtime_state.get("query_budget_reason") or "조사 예산 초과로 확인 불가")
+        return {"answer": "확인할 수 없습니다.", "evidence": [reason], "confidence": "low"}
     return {"answer": "(응답 생성 실패)", "evidence": [], "confidence": "low"}
 
 
