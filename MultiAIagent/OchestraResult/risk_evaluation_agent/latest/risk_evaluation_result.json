@@ -1,49 +1,49 @@
 [
   {
     "cve_id": "CVE-2021-23017",
-    "title": "nginx resolver의 off-by-one 메모리 오버라이트 취약점",
+    "title": "nginx resolver에서 DNS 이름 레이블 다음 루트 도메인 포인터 처리 시 off-by-one 오류",
     "impacted_assets": [
       {
-        "instance_id": "i-0c89bf4786d77161c",
-        "base_cvss": 7.7,
-        "calculated_risk": "HIGH",
+        "instance_id": "i-022c9785f840a271b",
+        "base_cvss": 7.5,
+        "calculated_risk": "CRITICAL",
         "exposure_level": "Public",
         "mitigations_found": [],
-        "risk_adjustment_reason": "asset agent 확인 결과(confidence: high): nginx 1.20.0이 root 권한 master 프로세스(PID 31071)로 포트 80에서 실행 중. nginx.conf에 'resolver 8.8.8.8' 지시자 활성화 확인됨. 패치(1.20.1 이상 업그레이드) 및 resolver 비활성화 완화조치 모두 미적용. 공인 IP 3.38.175.34, is_internet_facing=true, sg-09e223c03d07879f8으로 인터넷 노출 확인. proxy_pass/upstream 설정은 현재 없으나 resolver 활성화로 악의적 DNS 응답을 통한 off-by-one 오버라이트 공격 경로 존재. mitigation 미적용 + root 실행 + Public 노출로 기준 HIGH 유지. evidence: ps aux(root master PID 31071), nginx -v(1.20.0), nginx.conf(resolver 8.8.8.8), asset_info(public_ip=3.38.175.34, is_internet_facing=true).",
-        "remediation": "nginx 1.20.1 이상(또는 1.21.0 이상 mainline)으로 즉시 업그레이드. 업그레이드 전 임시 완화로 nginx.conf에서 resolver 지시자를 제거하거나 resolver 사용이 불필요한 경우 해당 블록 전체를 비활성화. 보안 그룹에서 불필요한 인바운드 포트 최소화 및 nginx master 프로세스의 root 실행 여부 재검토(worker 전용 non-root 계정 사용 권고)."
+        "risk_adjustment_reason": "asset agent 확인 결과: CVE-2021-23017 패치 미적용, nginx 1.20.0 취약 버전, resolver 8.8.8.8 활성화 상태, DNS 처리 진행 중, nginx master 프로세스 root 권한 실행, 공인 IP 3.34.28.159에서 포트 80(0.0.0.0:80) 인터넷 개방. 근거: /usr/local/nginx/conf/nginx.conf(resolver 8.8.8.8), ps aux(root 31247 nginx:master), ss -tuln(0.0.0.0:80 LISTEN), asset_info.json(public_ip=3.34.28.159, is_internet_facing=true). 기준점 HIGH에서 미패치 + root + public 노출 + active resolver 구성으로 CRITICAL 상향.",
+        "remediation": "즉시 조치: nginx를 1.21.1 이상으로 업그레이드 또는 nginx.conf에서 resolver 설정 제거, WAF 규칙으로 DNS 관련 공격 패턴 차단, 공인 IP 앞단에 API Gateway/ALB 배치 및 rate limiting 적용"
       },
       {
-        "instance_id": "i-0f7a17bc7bef0ee48",
-        "base_cvss": 7.7,
-        "calculated_risk": "HIGH",
+        "instance_id": "i-042ae9956ec62a569",
+        "base_cvss": 7.5,
+        "calculated_risk": "CRITICAL",
         "exposure_level": "Public",
         "mitigations_found": [],
-        "risk_adjustment_reason": "asset agent 확인 결과(confidence: high): nginx 1.20.0이 root 권한 master 프로세스(PID 31078)로 포트 80에서 실행 중. nginx.conf에 'resolver 8.8.8.8' 지시자 활성화 확인됨. 패치(1.20.1 이상) 및 resolver 비활성화 완화조치 모두 미적용. 공인 IP 13.125.190.150, is_internet_facing=true, sg-09e223c03d07879f8으로 인터넷 노출 확인. upstream/proxy_pass 설정은 현재 없으나 resolver 활성화 상태로 악의적 DNS 응답 기반 공격 가능. mitigation 미적용 + root 실행 + Public 노출로 기준 HIGH 유지. evidence: ps aux(root master PID 31078, nobody worker PID 31079), nginx -v(1.20.0), nginx.conf(resolver 8.8.8.8), asset_info(public_ip=13.125.190.150, is_internet_facing=true).",
-        "remediation": "nginx 1.20.1 이상(또는 1.21.0 이상 mainline)으로 즉시 업그레이드. 업그레이드 전 임시 완화로 nginx.conf에서 resolver 지시자를 제거하거나 해당 블록 비활성화. 보안 그룹 인바운드 규칙 최소화 및 nginx master 프로세스의 non-root 실행 계정 분리 검토."
+        "risk_adjustment_reason": "asset agent 확인 결과: CVE-2021-23017 패치 미적용, nginx 1.20.0 취약 버전, resolver 8.8.8.8 활성화 상태, DNS 처리 진행 중, nginx master 프로세스 root 권한 실행(PID 31117), 공인 IP 13.124.168.161에서 포트 80(0.0.0.0:80) 인터넷 노출. 근거: nginx.conf(resolver 8.8.8.8), ps aux(root 31117 nginx:master), ss -tuln(0.0.0.0:80 LISTEN), asset_info.json(public_ip=13.124.168.161). 기준점 HIGH에서 미패치 + root + public 노출 + resolver 활성화로 CRITICAL 상향.",
+        "remediation": "즉시 조치: nginx를 1.21.1 이상으로 업그레이드 또는 nginx.conf에서 resolver 설정 제거, WAF 규칙으로 DNS 포이즈닝 방지, 공인 IP 앞에 보안 게이트웨이/ALB 배치, rate limiting 및 access control 강화"
       }
     ]
   },
   {
     "cve_id": "CVE-2021-44228",
-    "title": "Apache Log4j2 JNDI 기능의 접근 제어 부재로 인한 원격 코드 실행",
+    "title": "Apache Log4j2 JNDI 인젝션을 통한 원격 코드 실행",
     "impacted_assets": [
       {
-        "instance_id": "i-06552163df73d71cb",
+        "instance_id": "i-0c180feccaacadc5c",
         "base_cvss": 10.0,
         "calculated_risk": "HIGH",
         "exposure_level": "Internal",
         "mitigations_found": [],
-        "risk_adjustment_reason": "asset agent 확인 결과(confidence: high): log4j-core-2.14.1.jar 및 log4j-api-2.14.1.jar이 /app/lib 경로에 설치되어 있으며 Java 프로세스(PID 9241)가 root(UID 0)로 실행 중. JndiLookup.class가 JAR 내부에 존재하며 제거되지 않음. formatMsgNoLookups=true 설정 없음. log4j 2.15.0 이상 패치 미적용. 아웃바운드 인터넷(8.8.8.8:53) 연결 성공으로 JNDI 콜백 가능. 공인 IP 없음(private subnet subnet-010a82aeb2e88b8a6), network_exposure=private로 Internal 노출. Base CVSS 10.0(CRITICAL)에서 Internal 노출 -1단계 적용하여 HIGH 산정. mitigation 미적용 + root 실행이나 Internal 노출로 1단계 하향. evidence: /app/lib/log4j-core-2.14.1.jar(JndiLookup.class 포함), ps aux(root UID 0 PID 9241), formatMsgNoLookups 미설정, 아웃바운드 연결 성공, asset_info(공인 IP 없음, network_exposure=private).",
-        "remediation": "log4j 2.17.1 이상(Java 8) 또는 2.12.4(Java 7)으로 즉시 업그레이드. 즉시 업그레이드가 불가한 경우 (1) JAR에서 JndiLookup 클래스 제거(zip -q -d log4j-core-*.jar org/apache/logging/log4j/core/lookup/JndiLookup.class), (2) JVM 시작 인수에 -Dlog4j2.formatMsgNoLookups=true 추가, (3) 아웃바운드 LDAP/RMI/DNS 트래픽 차단. Java 프로세스를 non-root 전용 계정으로 실행하도록 서비스 계정 분리 필요."
+        "risk_adjustment_reason": "asset agent 확인 결과: CVE-2021-44228 패치 미적용, Log4j 2.14.1 설치 및 활성 사용 중(VulnerableApp 프로세스 root 권한 실행, PID 9094), JndiLookup.class 존재로 JNDI injection 취약, 외부 입력(User-Agent 헤더) → logger.info → log4j로의 데이터 흐름 확인, 포트 8080(:::8080 LISTEN)으로 HTTP 요청 수신 가능. 그러나 공인 IP 없음, 프라이빗 서브넷 격리(network_exposure=private). 근거: /app/lib/log4j-core-2.14.1.jar(SHA256 확인됨), jar -tf grep JndiLookup.class, ps aux(root 9094 java), /proc/9094/status(Uid: 0), grep logger(User-Agent logging), curl 200 OK, asset_info.json(public_ip 공백, is_internet_facing=false). 기준점 CRITICAL에서 내부 네트워크 격리로 1단계 하향하여 HIGH.",
+        "remediation": "즉시 조치: Log4j를 2.17.0 이상으로 업그레이드, 또는 log4j2.xml에서 JndiLookup 클래스 비활성화(LOG4J_FORMAT_MSG_NO_LOOKUPS=true 설정), Java 프로세스를 non-root 사용자(예: tomcat)로 실행 변경, 인바운드 액세스 제어 강화(VPC endpoint/security group), 로그 서버 분리(localhost 이외 로그 전송 제한)"
       },
       {
-        "instance_id": "i-054f0c3328b08d0d3",
+        "instance_id": "i-03234b026942b39bb",
         "base_cvss": 10.0,
         "calculated_risk": "HIGH",
         "exposure_level": "Internal",
         "mitigations_found": [],
-        "risk_adjustment_reason": "asset agent 확인 결과(confidence: high): log4j-core-2.14.1.jar 및 log4j-api-2.14.1.jar이 /app/lib에 설치되어 있고 Java 프로세스(PID 9136)가 root(UID 0, CAP_SYS_ADMIN 포함)로 실행 중. JndiLookup.class가 JAR 내부에 존재. formatMsgNoLookups 미설정, 패치 미적용. VulnerableApp.java에서 User-Agent 헤더를 logger.info()로 직접 로깅하여 외부 입력이 JNDI lookup sink까지 도달하는 경로 확인됨(JNDI 페이로드 주입 직접 가능). 공인 IP 없음, network_exposure=private, 내부망(10.0.11.206)으로 Internal 노출. Base CVSS 10.0(CRITICAL)에서 Internal 노출 -1단계 적용하여 HIGH 산정. 단, User-Agent→logger.info() 직접 연결로 내부망 공격자에 의한 즉각 악용 가능성 매우 높음. evidence: /app/VulnerableApp.java(User-Agent→logger.info() 직접 로깅), /app/lib/log4j-core-2.14.1.jar(JndiLookup.class 포함), ps aux(root UID 0 PID 9136, CAP_SYS_ADMIN), ss -tlnp(포트 8080 listen), asset_info(공인 IP 없음, network_exposure=private).",
-        "remediation": "log4j 2.17.1 이상으로 즉시 업그레이드. 즉시 업그레이드가 불가한 경우 (1) JndiLookup 클래스 JAR에서 제거, (2) -Dlog4j2.formatMsgNoLookups=true JVM 인수 추가, (3) 아웃바운드 LDAP/RMI/DNS 트래픽 방화벽 차단. VulnerableApp.java의 User-Agent 로깅 코드를 즉시 수정하여 외부 입력이 logger에 직접 전달되지 않도록 입력 검증 및 sanitization 적용. Java 프로세스를 non-root 계정으로 실행하도록 서비스 계정 분리 필요."
+        "risk_adjustment_reason": "asset agent 확인 결과: CVE-2021-44228 패치 미적용, Log4j 2.14.1 설치 및 활성 사용 중(VulnerableApp 프로세스 root 권한 실행, PID 9280), JndiManager.class 포함 확인으로 JNDI 취약, HTTP 요청 수신 가능(포트 8080, netstat :::8080 LISTEN), 외부 입력 로깅 활성. 공인 IP 없음, 프라이빗 IP 10.0.11.252만 보유, 프라이빗 서브넷 격리(network_exposure=private, is_internet_facing=false). 근거: /app/lib/log4j-api-2.14.1.jar, /app/lib/log4j-core-2.14.1.jar, ps aux(root 9280 java), unzip -l grep JndiManager.class, netstat(:::8080 LISTEN 9280), curl(Log4j Vulnerable Server is Active!), ip addr(10.0.11.252), asset_info.json(public_ip 공백). 기준점 CRITICAL에서 프라이빗 네트워크 격리로 1단계 하향하여 HIGH.",
+        "remediation": "즉시 조치: Log4j를 2.17.0 이상으로 업그레이드, 또는 log4j2.xml에서 JndiLookup 비활성화(LOG4J_FORMAT_MSG_NO_LOOKUPS=true), Java 프로세스를 non-root 사용자로 변경, 네트워크 분할(NACLs, security groups로 포트 8080 접근 제한), 로그 수집 레이어 도입(로컬 로그 → ELK/CloudWatch 안전한 전송), 런타임 모니터링(JNDI lookup 패턴 탐지)"
       }
     ]
   }

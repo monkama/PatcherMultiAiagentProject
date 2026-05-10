@@ -1,0 +1,29 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowBedrockConverseAndInvoke",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock:Converse",
+        "bedrock:ConverseStream",
+        "bedrock:InvokeModel",
+        "bedrock:InvokeModelWithResponseStream"
+      ],
+      "Resource": [
+        "arn:aws:bedrock:*::foundation-model/*",
+        "arn:aws:bedrock:ap-northeast-2:*:inference-profile/*",
+        "arn:aws:bedrock:ap-northeast-2:*:application-inference-profile/*"
+      ]
+    },
+    {
+      "Sid": "AllowMarketplaceSubscriptionChecks",
+      "Effect": "Allow",
+      "Action": [
+        "aws-marketplace:ViewSubscriptions",
+        "aws-marketplace:Subscribe"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

@@ -35,7 +35,14 @@ PY
 load_project_env
 
 AWS_REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-ap-northeast-2}}"
-AWS_ACCOUNT_ID="${AWS_ACCOUNT_ID:-430155298344}"
+AWS_ACCOUNT_ID="${AWS_ACCOUNT_ID:-}"
+if [[ -z "$AWS_ACCOUNT_ID" ]]; then
+  AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text 2>/dev/null || true)"
+fi
+if [[ -z "$AWS_ACCOUNT_ID" || "$AWS_ACCOUNT_ID" == "None" ]]; then
+  echo "error: AWS_ACCOUNT_ID가 비어 있습니다. .env 에 AWS_ACCOUNT_ID를 넣거나 현재 AWS 자격증명으로 sts 조회가 가능해야 합니다." >&2
+  exit 1
+fi
 ECR_REPOSITORY="${ECR_REPOSITORY:-patch-impact-agent}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
 

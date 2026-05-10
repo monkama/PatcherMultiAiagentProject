@@ -36,7 +36,7 @@ from strands import Agent, tool
 
 BEDROCK_MODEL_ID = os.environ.get(
     "BEDROCK_MODEL_ID",
-    "global.anthropic.claude-sonnet-4-6",
+    "global.anthropic.claude-haiku-4-5-20251001-v1:0",
 )
 DEFAULT_REGION = os.environ.get("DEFAULT_REGION", "ap-northeast-2")
 ASSET_MATCHING_ARN_ENV = "ASSET_MATCHING_ARN"

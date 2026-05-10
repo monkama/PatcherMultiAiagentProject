@@ -4,41 +4,84 @@
   "status": "ok",
   "backend": "agentcore_runtime",
   "runtime_arn": "arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/risk_evaluation_agent-ajbkmr2NYK",
-  "generated_at": "2026-05-10T16:58:02.977326+00:00",
-  "record_count": 0,
+  "generated_at": "2026-05-10T18:29:26.816811+00:00",
+  "record_count": 2,
   "result_path": "/tmp/multiai/OutputResult/RiskevalAgent/risk_evaluation_result.json",
   "raw_response_path": "/tmp/multiai/OutputResult/RiskevalAgent/risk_evaluation_raw_response.json",
   "swarm_queries": [
     {
-      "instance_id": "i-09639eabd0b862a74",
-      "question": "CVE-2021-23017 (nginx resolver DNS 레이블 오류)와 CVE-2021-44228 (Log4j2 JNDI 인젝션)에 대해: (1) nginx 및 Log4j2 설치 여부 및 버전, (2) 해당 CVE에 대한 패치 또는 완화 조치 적용 여부, (3) nginx/Log4j2가 실행 중인 경우 실행 권한(root 또는 non-root), (4) 인스턴스의 네트워크 노출 상태(공인 IP 또는 내부망), (5) 관련 설정 파일, 프로세스 정보, 버전 확인 출력.",
-      "answer": "(1) nginx/Log4j2 설치 여부: 현재 인스턴스 상태로 인해 직접 확인 불가능. (2) 패치 상태: 미확인. (3) 실행 권한: 프로세스 미확인. (4) 네트워크 노출: 내부망(공인IP 없음, private subnet). (5) 설정/버전: 인스턴스 응답 불가로 미수집.",
-      "confidence": "low"
+      "instance_id": "i-022c9785f840a271b",
+      "question": "이 nginx 1.20.0 인스턴스에서: (1) CVE-2021-23017 패치가 적용되었거나 resolver 기능이 비활성화된 상태인지 확인, (2) nginx resolver가 활성화되어 있고 DNS 처리가 실제 진행 중인지 확인, (3) nginx 프로세스가 root 권한으로 실행 중인지 확인, (4) 이 인스턴스가 인터넷에 노출된 공인 IP를 사용하는지 아니면 내부망 전용인지 확인. 설정 파일, 프로세스 목록, 네트워크 설정을 근거로 제시하십시오.",
+      "answer": "(1) CVE-2021-23017 미패치: nginx 1.20.0은 취약점 대상 버전(1.16.0~1.21.0)으로 resolver 기능이 활성화되어 있어 DNS poisoning 위험 있음. (2) nginx resolver 활성화 확인: nginx.conf에서 'resolver 8.8.8.8' 설정으로 DNS 처리 활성 상태. (3) root 실행 확인",
+      "confidence": "high"
     },
     {
-      "instance_id": "i-01f2886bbc7080b0f",
-      "question": "CVE-2021-23017 (nginx resolver DNS 레이블 오류)와 CVE-2021-44228 (Log4j2 JNDI 인젝션)에 대해: (1) nginx 및 Log4j2 설치 여부 및 버전, (2) 해당 CVE에 대한 패치 또는 완화 조치 적용 여부, (3) nginx/Log4j2가 실행 중인 경우 실행 권한(root 또는 non-root), (4) 인스턴스의 네트워크 노출 상태(공인 IP 또는 내부망), (5) 관련 설정 파일, 프로세스 정보, 버전 확인 출력.",
-      "answer": "CVE-2021-23017/CVE-2021-44228 평가 결과: (1) 설치 여부/버전 미확인 - EC2 인스턴스 접근 불가, (2) 패치 적용 여부 미확인, (3) 실행 권한 미확인, (4) 네트워크 노출: 공인 IP 43.203.175.36 보유(public tier, high criticality), (5) 설정/프로세스 정보 미수집. 인스턴스 상태",
-      "confidence": "low"
+      "instance_id": "i-042ae9956ec62a569",
+      "question": "이 nginx 1.20.0 인스턴스에서: (1) CVE-2021-23017 패치가 적용되었거나 resolver 기능이 비활성화된 상태인지 확인, (2) nginx resolver가 활성화되어 있고 DNS 처리가 실제 진행 중인지 확인, (3) nginx 프로세스가 root 권한으로 실행 중인지 확인, (4) 이 인스턴스가 인터넷에 노출된 공인 IP를 사용하는지 아니면 내부망 전용인지 확인. 설정 파일, 프로세스 목록, 네트워크 설정을 근거로 제시하십시오.",
+      "answer": "(1) CVE-2021-23017: nginx 1.20.0은 패치 미적용 버전이며, 설정에서 resolver 8.8.8.8이 활성화되어 있어 취약점 노출 상태입니다. (2) nginx resolver: 활성화 상태 (resolver 8.8.8.8 설정), DNS 처리 진행 중으로 확인됨. (3) nginx 프로세스: Master(PID 31117)는 roo",
+      "confidence": "high"
     },
     {
-      "instance_id": "i-0cc32279623d0e97b",
-      "question": "CVE-2021-23017 (nginx resolver DNS 레이블 오류)와 CVE-2021-44228 (Log4j2 JNDI 인젝션)에 대해: (1) nginx 및 Log4j2 설치 여부 및 버전, (2) 해당 CVE에 대한 패치 또는 완화 조치 적용 여부, (3) nginx/Log4j2가 실행 중인 경우 실행 권한(root 또는 non-root), (4) 인스턴스의 네트워크 노출 상태(공인 IP 또는 내부망), (5) 관련 설정 파일, 프로세스 정보, 버전 확인 출력.",
-      "answer": "nginx 및 Log4j2 설치 여부를 직접 확인할 수 없으나(인스턴스 상태 불가), asset_info에서 설치된 소프트웨어 목록이 비어있고, 이 자산은 DB tier로 분류되어 있으며 공인 IP가 없는 내부망 프라이빗 인스턴스입니다. nginx나 Log4j2가 설치되었다면 DB 서버 용도로는 일반적이지 않습니다. 직접 조사 불가 상태에서는 (1) 설치 ",
-      "confidence": "low"
+      "instance_id": "i-0c180feccaacadc5c",
+      "question": "이 log4j 2.14.1을 포함한 인스턴스에서: (1) CVE-2021-44228 패치가 적용되었는지 또는 Log4j 버전이 업그레이드되었는지 확인, (2) log4j 2.14.1이 실제로 설치되어 있고 애플리케이션에서 활성으로 사용 중인지 확인, (3) 로그 메시지 입력이 외부(네트워크, 사용자 입력)에서 도달할 수 있는지 확인, (4) log4j를 사용하는 프로세스가 root 권한으로 실행 중인지 확인, (5) 이 인스턴스가 공인 IP로 인터넷 노출 상태인지 확인. 패키지 목록, 설정 파일, 프로세스 권한, 네트워크 설정을 근거로 제시하십시오.",
+      "answer": "(1) CVE-2021-44228 패치 미적용: Log4j 2.14.1은 취약한 버전이며 JndiLookup.class가 존재해 패치 없음. (2) Log4j 2.14.1 설치 확인: /app/lib/log4j-api-2.14.1.jar, /app/lib/log4j-core-2.14.1.jar 존재, VulnerableApp 프로세스에서 활성 사용 중. (",
+      "confidence": "high"
     },
     {
-      "instance_id": "i-0157a1acf5c2365fb",
-      "question": "CVE-2021-23017 (nginx resolver DNS 레이블 오류)와 CVE-2021-44228 (Log4j2 JNDI 인젝션)에 대해: (1) nginx 및 Log4j2 설치 여부 및 버전, (2) 해당 CVE에 대한 패치 또는 완화 조치 적용 여부, (3) nginx/Log4j2가 실행 중인 경우 실행 권한(root 또는 non-root), (4) 인스턴스의 네트워크 노출 상태(공인 IP 또는 내부망), (5) 관련 설정 파일, 프로세스 정보, 버전 확인 출력.",
-      "answer": "해당 인스턴스(i-0157a1acf5c2365fb)에 대한 직접 접근이 불가능하여 전체 점검을 완료할 수 없습니다. 다만 수집된 정보 범위 내 답변: (1) 설치 현황 미확인 (직접 접근 불가), (2) 패치 여부 미확인, (3) 실행 권한 미확인, (4) 네트워크 노출: 공인 IP 없음 (내부망 private 네트워크, \"network_exposure\":",
-      "confidence": "low"
-    },
-    {
-      "instance_id": "i-03b4cf9c9b1625f23",
-      "question": "CVE-2021-23017 (nginx resolver DNS 레이블 오류)와 CVE-2021-44228 (Log4j2 JNDI 인젝션)에 대해: (1) nginx 및 Log4j2 설치 여부 및 버전, (2) 해당 CVE에 대한 패치 또는 완화 조치 적용 여부, (3) nginx/Log4j2가 실행 중인 경우 실행 권한(root 또는 non-root), (4) 인스턴스의 네트워크 노출 상태(공인 IP 또는 내부망), (5) 관련 설정 파일, 프로세스 정보, 버전 확인 출력.",
-      "answer": "nginx 및 Log4j2 설치 여부: 수집된 메타데이터에서 확인 불가. installed_software 배열이 비어있음. EC2 인스턴스(i-03b4cf9c9b1625f23)가 SSM 접근 불가 상태로 직접 조사 불가. 공인 IP(43.203.220.229) 보유하나 현재 접근 채널 제한. 네트워크 노출: 공인 IP 보유(public tier). 추가 ",
-      "confidence": "low"
+      "instance_id": "i-03234b026942b39bb",
+      "question": "이 log4j 2.14.1을 포함한 인스턴스에서: (1) CVE-2021-44228 패치가 적용되었는지 또는 Log4j 버전이 업그레이드되었는지 확인, (2) log4j 2.14.1이 실제로 설치되어 있고 애플리케이션에서 활성으로 사용 중인지 확인, (3) 로그 메시지 입력이 외부(네트워크, 사용자 입력)에서 도달할 수 있는지 확인, (4) log4j를 사용하는 프로세스가 root 권한으로 실행 중인지 확인, (5) 이 인스턴스가 공인 IP로 인터넷 노출 상태인지 확인. 패키지 목록, 설정 파일, 프로세스 권한, 네트워크 설정을 근거로 제시하십시오.",
+      "answer": "(1) CVE-2021-44228 패치 미적용 - Log4j 2.14.1은 취약 버전(2.15.0+에서 패치됨); (2) log4j 2.14.1 실제 설치 및 활성 사용 중 - /app/lib/에 log4j-api/core 2.14.1 JAR 파일 존재, VulnerableApp이 root로 실행 중 활성 사용; (3) 로그 입력이 외부 도달 가능 - 포트",
+      "confidence": "high"
     }
   ],
-  "result": []
+  "result": [
+    {
+      "cve_id": "CVE-2021-23017",
+      "title": "nginx resolver에서 DNS 이름 레이블 다음 루트 도메인 포인터 처리 시 off-by-one 오류",
+      "impacted_assets": [
+        {
+          "instance_id": "i-022c9785f840a271b",
+          "base_cvss": 7.5,
+          "calculated_risk": "CRITICAL",
+          "exposure_level": "Public",
+          "mitigations_found": [],
+          "risk_adjustment_reason": "asset agent 확인 결과: CVE-2021-23017 패치 미적용, nginx 1.20.0 취약 버전, resolver 8.8.8.8 활성화 상태, DNS 처리 진행 중, nginx master 프로세스 root 권한 실행, 공인 IP 3.34.28.159에서 포트 80(0.0.0.0:80) 인터넷 개방. 근거: /usr/local/nginx/conf/nginx.conf(resolver 8.8.8.8), ps aux(root 31247 nginx:master), ss -tuln(0.0.0.0:80 LISTEN), asset_info.json(public_ip=3.34.28.159, is_internet_facing=true). 기준점 HIGH에서 미패치 + root + public 노출 + active resolver 구성으로 CRITICAL 상향.",
+          "remediation": "즉시 조치: nginx를 1.21.1 이상으로 업그레이드 또는 nginx.conf에서 resolver 설정 제거, WAF 규칙으로 DNS 관련 공격 패턴 차단, 공인 IP 앞단에 API Gateway/ALB 배치 및 rate limiting 적용"
+        },
+        {
+          "instance_id": "i-042ae9956ec62a569",
+          "base_cvss": 7.5,
+          "calculated_risk": "CRITICAL",
+          "exposure_level": "Public",
+          "mitigations_found": [],
+          "risk_adjustment_reason": "asset agent 확인 결과: CVE-2021-23017 패치 미적용, nginx 1.20.0 취약 버전, resolver 8.8.8.8 활성화 상태, DNS 처리 진행 중, nginx master 프로세스 root 권한 실행(PID 31117), 공인 IP 13.124.168.161에서 포트 80(0.0.0.0:80) 인터넷 노출. 근거: nginx.conf(resolver 8.8.8.8), ps aux(root 31117 nginx:master), ss -tuln(0.0.0.0:80 LISTEN), asset_info.json(public_ip=13.124.168.161). 기준점 HIGH에서 미패치 + root + public 노출 + resolver 활성화로 CRITICAL 상향.",
+          "remediation": "즉시 조치: nginx를 1.21.1 이상으로 업그레이드 또는 nginx.conf에서 resolver 설정 제거, WAF 규칙으로 DNS 포이즈닝 방지, 공인 IP 앞에 보안 게이트웨이/ALB 배치, rate limiting 및 access control 강화"
+        }
+      ]
+    },
+    {
+      "cve_id": "CVE-2021-44228",
+      "title": "Apache Log4j2 JNDI 인젝션을 통한 원격 코드 실행",
+      "impacted_assets": [
+        {
+          "instance_id": "i-0c180feccaacadc5c",
+          "base_cvss": 10.0,
+          "calculated_risk": "HIGH",
+          "exposure_level": "Internal",
+          "mitigations_found": [],
+          "risk_adjustment_reason": "asset agent 확인 결과: CVE-2021-44228 패치 미적용, Log4j 2.14.1 설치 및 활성 사용 중(VulnerableApp 프로세스 root 권한 실행, PID 9094), JndiLookup.class 존재로 JNDI injection 취약, 외부 입력(User-Agent 헤더) → logger.info → log4j로의 데이터 흐름 확인, 포트 8080(:::8080 LISTEN)으로 HTTP 요청 수신 가능. 그러나 공인 IP 없음, 프라이빗 서브넷 격리(network_exposure=private). 근거: /app/lib/log4j-core-2.14.1.jar(SHA256 확인됨), jar -tf grep JndiLookup.class, ps aux(root 9094 java), /proc/9094/status(Uid: 0), grep logger(User-Agent logging), curl 200 OK, asset_info.json(public_ip 공백, is_internet_facing=false). 기준점 CRITICAL에서 내부 네트워크 격리로 1단계 하향하여 HIGH.",
+          "remediation": "즉시 조치: Log4j를 2.17.0 이상으로 업그레이드, 또는 log4j2.xml에서 JndiLookup 클래스 비활성화(LOG4J_FORMAT_MSG_NO_LOOKUPS=true 설정), Java 프로세스를 non-root 사용자(예: tomcat)로 실행 변경, 인바운드 액세스 제어 강화(VPC endpoint/security group), 로그 서버 분리(localhost 이외 로그 전송 제한)"
+        },
+        {
+          "instance_id": "i-03234b026942b39bb",
+          "base_cvss": 10.0,
+          "calculated_risk": "HIGH",
+          "exposure_level": "Internal",
+          "mitigations_found": [],
+          "risk_adjustment_reason": "asset agent 확인 결과: CVE-2021-44228 패치 미적용, Log4j 2.14.1 설치 및 활성 사용 중(VulnerableApp 프로세스 root 권한 실행, PID 9280), JndiManager.class 포함 확인으로 JNDI 취약, HTTP 요청 수신 가능(포트 8080, netstat :::8080 LISTEN), 외부 입력 로깅 활성. 공인 IP 없음, 프라이빗 IP 10.0.11.252만 보유, 프라이빗 서브넷 격리(network_exposure=private, is_internet_facing=false). 근거: /app/lib/log4j-api-2.14.1.jar, /app/lib/log4j-core-2.14.1.jar, ps aux(root 9280 java), unzip -l grep JndiManager.class, netstat(:::8080 LISTEN 9280), curl(Log4j Vulnerable Server is Active!), ip addr(10.0.11.252), asset_info.json(public_ip 공백). 기준점 CRITICAL에서 프라이빗 네트워크 격리로 1단계 하향하여 HIGH.",
+          "remediation": "즉시 조치: Log4j를 2.17.0 이상으로 업그레이드, 또는 log4j2.xml에서 JndiLookup 비활성화(LOG4J_FORMAT_MSG_NO_LOOKUPS=true), Java 프로세스를 non-root 사용자로 변경, 네트워크 분할(NACLs, security groups로 포트 8080 접근 제한), 로그 수집 레이어 도입(로컬 로그 → ELK/CloudWatch 안전한 전송), 런타임 모니터링(JNDI lookup 패턴 탐지)"
+        }
+      ]
+    }
+  ]
 }

@@ -17,7 +17,7 @@
         "ecr:BatchGetImage",
         "ecr:GetDownloadUrlForLayer"
       ],
-      "Resource": "arn:aws:ecr:ap-northeast-2:430155298344:repository/patch-impact-agent"
+      "Resource": "arn:aws:ecr:ap-northeast-2:*:repository/patch-impact-agent"
     }
   ]
 }

@@ -8,7 +8,8 @@
         "bedrock-agentcore:InvokeAgentRuntime"
       ],
       "Resource": [
-        "arn:aws:bedrock-agentcore:ap-northeast-2:430155298344:runtime/asset_matching_agent-TZCFW6ByUy"
+        "arn:aws:bedrock-agentcore:ap-northeast-2:*:runtime/*",
+        "arn:aws:bedrock-agentcore:ap-northeast-2:*:runtime/*/runtime-endpoint/DEFAULT"
       ]
     }
   ]

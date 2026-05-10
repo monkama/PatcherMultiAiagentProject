@@ -6,8 +6,8 @@ agents:
     node_version: null
     entrypoint: runtime_app.py
     deployment_type: direct_code_deploy
-    runtime_type: PYTHON_3_12
-    platform: linux/amd64
+    runtime_type: PYTHON_3_13
+    platform: linux/arm64
     container_runtime: null
     source_path: null
     aws:
@@ -30,8 +30,8 @@ agents:
         idle_runtime_session_timeout: null
         max_lifetime: null
     bedrock_agentcore:
-      agent_id: asset_matching_agent-zoDcgCEt8u
-      agent_arn: arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/asset_matching_agent-zoDcgCEt8u
+      agent_id: null
+      agent_arn: null
       agent_session_id: null
     codebuild:
       project_name: null

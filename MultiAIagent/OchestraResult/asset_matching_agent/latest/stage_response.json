@@ -2,22 +2,117 @@
   "agent": "infra_matching_agent",
   "status": "injected",
   "result": {
-    "vpc_id": "vpc-02b63d54e73e54c1e",
+    "vpc_id": "vpc-0ab7234b808141775",
     "region": "ap-northeast-2",
-    "collected_at": "2026-05-10T16:34:09.083992+00:00",
+    "collected_at": "2026-05-10T18:23:34.081225+00:00",
     "assets": [
       {
-        "asset_id": "i-09639eabd0b862a74",
-        "hostname": "i-09639eabd0b862a74",
+        "asset_id": "i-022c9785f840a271b",
+        "hostname": "ip-10-0-2-111.ap-northeast-2.compute.internal",
+        "tier": "web",
+        "availability_zone": "ap-northeast-2b",
+        "subnet_id": "subnet-0ef322a245f56f328",
+        "private_ip": "10.0.2.111",
+        "public_ip": "3.34.28.159",
+        "security_groups": [
+          "sg-04a2020fd02e204ad"
+        ],
+        "iam_instance_profile": "megathon-SSMInstanceProfile-Fc8fWXWPgdzz",
+        "metadata": {
+          "environment": "production",
+          "network_exposure": "public",
+          "business_criticality": "high",
+          "data_classification": "unknown"
+        },
+        "network_context": {
+          "public_ip": "3.34.28.159",
+          "listening_ports": [
+            22
+          ],
+          "is_internet_facing": true
+        },
+        "security_context": {
+          "attached_iam_role": "megathon-SSMRole-XQWyTisqCvnZ",
+          "running_as_root": [
+            "nginx"
+          ],
+          "imds_v2_enforced": false,
+          "selinux_enforced": false
+        },
+        "os_info": {
+          "vendor": "amzn",
+          "version": "2023"
+        },
+        "installed_software": [
+          {
+            "vendor": "f5",
+            "product": "nginx",
+            "version": "1.20.0",
+            "cpe": "cpe:2.3:a:f5:nginx:1.20.0:*:*:*:*:*:*:*",
+            "source_path": "/nginx-1.20.0/objs/nginx"
+          }
+        ]
+      },
+      {
+        "asset_id": "i-0c180feccaacadc5c",
+        "hostname": "ip-10-0-12-128.ap-northeast-2.compute.internal",
         "tier": "app",
         "availability_zone": "ap-northeast-2b",
-        "subnet_id": "subnet-021c668f40c69c0e2",
-        "private_ip": "10.0.12.253",
+        "subnet_id": "subnet-074957b5f22e1e3fb",
+        "private_ip": "10.0.12.128",
         "public_ip": "",
         "security_groups": [
-          "sg-06245d5b2f3f87cef"
+          "sg-027c4883b8fecff64"
         ],
-        "iam_instance_profile": "",
+        "iam_instance_profile": "megathon-SSMInstanceProfile-Fc8fWXWPgdzz",
+        "metadata": {
+          "environment": "production",
+          "network_exposure": "private",
+          "business_criticality": "high",
+          "data_classification": "Internal"
+        },
+        "network_context": {
+          "public_ip": "",
+          "listening_ports": [
+            22,
+            8080
+          ],
+          "is_internet_facing": false
+        },
+        "security_context": {
+          "attached_iam_role": "megathon-SSMRole-XQWyTisqCvnZ",
+          "running_as_root": [
+            "java"
+          ],
+          "imds_v2_enforced": true,
+          "selinux_enforced": false
+        },
+        "os_info": {
+          "vendor": "amzn",
+          "version": "2023"
+        },
+        "installed_software": [
+          {
+            "vendor": "apache",
+            "product": "log4j",
+            "version": "2.14.1",
+            "cpe": "cpe:2.3:a:apache:log4j:2.14.1:*:*:*:*:*:*:*",
+            "source_path": "/app/lib/log4j-core-2.14.1.jar"
+          }
+        ]
+      },
+      {
+        "asset_id": "i-03234b026942b39bb",
+        "hostname": "ip-10-0-11-252.ap-northeast-2.compute.internal",
+        "tier": "app",
+        "availability_zone": "ap-northeast-2a",
+        "subnet_id": "subnet-0ca859b799f0d1561",
+        "private_ip": "10.0.11.252",
+        "public_ip": "",
+        "security_groups": [
+          "sg-027c4883b8fecff64"
+        ],
+        "iam_instance_profile": "megathon-SSMInstanceProfile-Fc8fWXWPgdzz",
         "metadata": {
           "environment": "production",
           "network_exposure": "private",
@@ -26,33 +121,46 @@
         },
         "network_context": {
           "public_ip": "",
-          "listening_ports": [],
+          "listening_ports": [
+            22,
+            8080
+          ],
           "is_internet_facing": false
         },
         "security_context": {
           "attached_iam_role": "",
-          "running_as_root": [],
-          "imds_v2_enforced": false,
+          "running_as_root": [
+            "java"
+          ],
+          "imds_v2_enforced": true,
           "selinux_enforced": false
         },
         "os_info": {
-          "vendor": "unknown",
-          "version": "unknown"
+          "vendor": "amzn",
+          "version": "2023"
         },
-        "installed_software": []
+        "installed_software": [
+          {
+            "vendor": "apache",
+            "product": "log4j",
+            "version": "2.14.1",
+            "cpe": "cpe:2.3:a:apache:log4j:2.14.1:*:*:*:*:*:*:*",
+            "source_path": "/app/lib/log4j-core-2.14.1.jar"
+          }
+        ]
       },
       {
-        "asset_id": "i-01f2886bbc7080b0f",
-        "hostname": "i-01f2886bbc7080b0f",
+        "asset_id": "i-042ae9956ec62a569",
+        "hostname": "ip-10-0-1-16.ap-northeast-2.compute.internal",
         "tier": "web",
-        "availability_zone": "ap-northeast-2b",
-        "subnet_id": "subnet-030e8193ec843b12d",
-        "private_ip": "10.0.2.172",
-        "public_ip": "43.203.175.36",
+        "availability_zone": "ap-northeast-2a",
+        "subnet_id": "subnet-06ee3310af6ae458b",
+        "private_ip": "10.0.1.16",
+        "public_ip": "13.124.168.161",
         "security_groups": [
-          "sg-061e2443239c3dc5d"
+          "sg-04a2020fd02e204ad"
         ],
-        "iam_instance_profile": "",
+        "iam_instance_profile": "megathon-SSMInstanceProfile-Fc8fWXWPgdzz",
         "metadata": {
           "environment": "production",
           "network_exposure": "public",
@@ -60,34 +168,47 @@
           "data_classification": "unknown"
         },
         "network_context": {
-          "public_ip": "",
-          "listening_ports": [],
-          "is_internet_facing": false
+          "public_ip": "13.124.168.161",
+          "listening_ports": [
+            22,
+            80
+          ],
+          "is_internet_facing": true
         },
         "security_context": {
-          "attached_iam_role": "",
-          "running_as_root": [],
-          "imds_v2_enforced": false,
+          "attached_iam_role": "megathon-SSMRole-XQWyTisqCvnZ",
+          "running_as_root": [
+            "nginx"
+          ],
+          "imds_v2_enforced": true,
           "selinux_enforced": false
         },
         "os_info": {
-          "vendor": "unknown",
-          "version": "unknown"
+          "vendor": "amzn",
+          "version": "2023"
         },
-        "installed_software": []
+        "installed_software": [
+          {
+            "vendor": "f5",
+            "product": "nginx",
+            "version": "1.20.0",
+            "cpe": "cpe:2.3:a:f5:nginx:1.20.0:*:*:*:*:*:*:*",
+            "source_path": "/usr/local/nginx/sbin/nginx"
+          }
+        ]
       },
       {
-        "asset_id": "i-0cc32279623d0e97b",
-        "hostname": "i-0cc32279623d0e97b",
+        "asset_id": "i-09f4ce76c59877dbd",
+        "hostname": "ip-10-0-11-50.ap-northeast-2.compute.internal",
         "tier": "db",
         "availability_zone": "ap-northeast-2a",
-        "subnet_id": "subnet-0c582323b01210abe",
-        "private_ip": "10.0.11.98",
+        "subnet_id": "subnet-0ca859b799f0d1561",
+        "private_ip": "10.0.11.50",
         "public_ip": "",
         "security_groups": [
-          "sg-006758b24edd57eaf"
+          "sg-0ac575cb3f00c7317"
         ],
-        "iam_instance_profile": "",
+        "iam_instance_profile": "megathon-SSMInstanceProfile-Fc8fWXWPgdzz",
         "metadata": {
           "environment": "production",
           "network_exposure": "private",
@@ -96,105 +217,38 @@
         },
         "network_context": {
           "public_ip": "",
-          "listening_ports": [],
+          "listening_ports": [
+            22,
+            3306
+          ],
           "is_internet_facing": false
         },
         "security_context": {
-          "attached_iam_role": "",
+          "attached_iam_role": "megathon-SSMRole-XQWyTisqCvnZ",
           "running_as_root": [],
-          "imds_v2_enforced": false,
+          "imds_v2_enforced": true,
           "selinux_enforced": false
         },
         "os_info": {
-          "vendor": "unknown",
-          "version": "unknown"
-        },
-        "installed_software": []
-      },
-      {
-        "asset_id": "i-0157a1acf5c2365fb",
-        "hostname": "i-0157a1acf5c2365fb",
-        "tier": "app",
-        "availability_zone": "ap-northeast-2a",
-        "subnet_id": "subnet-0c582323b01210abe",
-        "private_ip": "10.0.11.9",
-        "public_ip": "",
-        "security_groups": [
-          "sg-06245d5b2f3f87cef"
-        ],
-        "iam_instance_profile": "",
-        "metadata": {
-          "environment": "production",
-          "network_exposure": "private",
-          "business_criticality": "high",
-          "data_classification": "unknown"
-        },
-        "network_context": {
-          "public_ip": "",
-          "listening_ports": [],
-          "is_internet_facing": false
-        },
-        "security_context": {
-          "attached_iam_role": "",
-          "running_as_root": [],
-          "imds_v2_enforced": false,
-          "selinux_enforced": false
-        },
-        "os_info": {
-          "vendor": "unknown",
-          "version": "unknown"
-        },
-        "installed_software": []
-      },
-      {
-        "asset_id": "i-03b4cf9c9b1625f23",
-        "hostname": "i-03b4cf9c9b1625f23",
-        "tier": "web",
-        "availability_zone": "ap-northeast-2a",
-        "subnet_id": "subnet-04ebb46b8e0bdc27a",
-        "private_ip": "10.0.1.166",
-        "public_ip": "43.203.220.229",
-        "security_groups": [
-          "sg-061e2443239c3dc5d"
-        ],
-        "iam_instance_profile": "",
-        "metadata": {
-          "environment": "production",
-          "network_exposure": "public",
-          "business_criticality": "high",
-          "data_classification": "unknown"
-        },
-        "network_context": {
-          "public_ip": "",
-          "listening_ports": [],
-          "is_internet_facing": false
-        },
-        "security_context": {
-          "attached_iam_role": "",
-          "running_as_root": [],
-          "imds_v2_enforced": false,
-          "selinux_enforced": false
-        },
-        "os_info": {
-          "vendor": "unknown",
-          "version": "unknown"
+          "vendor": "amzn",
+          "version": "2023"
         },
         "installed_software": []
       }
     ],
     "reachability": [
       {
-        "from": "app",
-        "to": "db",
-        "ports": [
-          3306
-        ]
-      },
-      {
         "from": "web",
         "to": "app",
         "ports": [
           8080
+        ]
+      },
+      {
+        "from": "app",
+        "to": "db",
+        "ports": [
+          3306
         ]
       }
     ]

@@ -53,7 +53,6 @@ QUESTION_TYPES = {
 CONFIDENCE_VALUES = {"high", "medium", "low"}
 MAX_ITERATIVE_FOLLOWUPS_PER_ASSET = 8
 MAX_ITERATIVE_AGENT_PASSES = 4
-
 _ACTIVE_FOLLOWUP_TOOL_CONTEXT: dict[str, Any] = {}
 
 
@@ -366,9 +365,11 @@ def _iterative_asset_system_prompt() -> str:
 - 같은 질문을 반복하지 마세요.
 - missing_information의 서로 다른 항목은 가능한 한 각각 별도 질문으로 확인하세요.
 - followup_question_candidates에 source_missing_information이 있으면, 해당 값을 유지한 채 ask_asset_followup에 함께 넘기세요.
-- missing_information이 남아 있고 followup_question_candidates가 제공되었으며 collected_followup_responses가 비어 있다면, final JSON을 반환하기 전에 ask_asset_followup tool을 먼저 호출해야 합니다.
-- 아직 follow-up을 전혀 시도하지 않은 상태에서 manual_review로 바로 종료하지 마세요.
-- collected_followup_responses를 검토한 뒤 아직 확인되지 않은 followup_question_candidates가 남아 있으면, 추가 수집이 가능하다고 판단되는 동안 ask_asset_followup을 이어서 호출하세요.
+- 먼저 현재 정보만으로 tentative decision을 내부적으로 정리하세요.
+- 그 tentative decision이 추가 사실 하나로 바뀌거나 더 확정될 수 있을 때만 ask_asset_followup을 호출하세요.
+- 한 번의 pass에서는 최대 1개의 follow-up만 호출하세요.
+- 아직 follow-up을 전혀 시도하지 않은 상태에서 manual_review로 바로 종료하지 마세요. 다만 현재 정보만으로도 충분히 no_action 또는 명확한 결론이 가능하면 tool 호출 없이 종료할 수 있습니다.
+- collected_followup_responses를 검토한 뒤 아직 확인되지 않은 followup_question_candidates가 남아 있으면, 추가 수집이 현재 tentative decision을 실질적으로 바꿀 수 있는 동안만 ask_asset_followup을 이어서 호출하세요.
 - 반대로 인스턴스 접근 불가, 동일한 차단 요인 반복, 충분한 확인 불가 근거처럼 더 수집해도 의미가 없다고 판단되면, 남은 항목을 remaining_unknowns에 남기고 종료할 수 있습니다.
 - 추가 질문이 더 이상 의미 없거나 충분한 결론을 낼 수 있으면 즉시 종료하고 최종 JSON을 반환하세요.
 - remaining_unknowns에는 최종 판단 후에도 남아 있는 미해결 항목만 남기세요.
@@ -872,6 +873,13 @@ def _run_iterative_asset_agent(
                 if remaining_candidates
                 else ""
             )
+            decision_planning_note = (
+                "\n\n먼저 현재 정보와 collected_followup_responses만으로 tentative decision을 내부적으로 정리하세요. "
+                "그 tentative decision을 바꾸거나 더 확정하는 데 필요한 핵심 사실이 하나 더 있다면 ask_asset_followup을 최대 1회 호출하세요. "
+                "추가 질문이 현재 판단을 실질적으로 바꾸지 못한다면 tool을 호출하지 말고 바로 최종 JSON을 반환하세요."
+                if allow_followup
+                else ""
+            )
             response = agent(
                 current_message
                 + (
@@ -881,6 +889,7 @@ def _run_iterative_asset_agent(
                     if not allow_followup
                     else ""
                 )
+                + decision_planning_note
                 + remaining_note
                 + (f"\n\n{extra_instruction}" if extra_instruction else ""),
                 structured_output_model=AssetDecisionModel,
@@ -899,9 +908,9 @@ def _run_iterative_asset_agent(
                 before_count = int(_ACTIVE_FOLLOWUP_TOOL_CONTEXT.get("followup_count") or 0)
                 model = _invoke_iterative_agent(
                     "아직 확인되지 않은 follow-up 후보가 남아 있습니다. "
-                    "collected_followup_responses를 검토하고, 추가 수집이 가능하다고 판단되면 "
-                    "ask_asset_followup를 다시 호출하세요. "
-                    "반대로 더 수집해도 의미가 없거나 불가능하다고 판단되면, 남은 항목을 "
+                    "현재 tentative decision을 기준으로, 추가 사실 하나가 결론을 실질적으로 바꿀 수 있을 때만 "
+                    "ask_asset_followup를 최대 1회 다시 호출하세요. "
+                    "반대로 더 수집해도 의미가 없거나 현재 결론을 바꾸지 못한다고 판단되면, 남은 항목을 "
                     "remaining_unknowns에 남기고 종료하세요."
                 )
                 after_count = int(_ACTIVE_FOLLOWUP_TOOL_CONTEXT.get("followup_count") or 0)
