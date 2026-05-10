@@ -1,0 +1,362 @@
+default_agent: patch_agent
+agents:
+  megathon_risk_agent:
+    name: megathon_risk_agent
+    language: python
+    node_version: '20'
+    entrypoint: /Users/hwan/Desktop/megathon/main.py
+    deployment_type: container
+    runtime_type: null
+    platform: linux/arm64
+    container_runtime: none
+    source_path: /Users/hwan/Desktop/megathon
+    aws:
+      execution_role: arn:aws:iam::842337469411:role/megathon_risk_agent_role
+      execution_role_auto_create: false
+      account: '842337469411'
+      region: ap-northeast-2
+      ecr_repository: 842337469411.dkr.ecr.ap-northeast-2.amazonaws.com/bedrock-agentcore-megathon_risk_agent
+      ecr_auto_create: false
+      s3_path: null
+      s3_auto_create: false
+      network_configuration:
+        network_mode: PUBLIC
+        network_mode_config: null
+      protocol_configuration:
+        server_protocol: HTTP
+      observability:
+        enabled: true
+      lifecycle_configuration:
+        idle_runtime_session_timeout: null
+        max_lifetime: null
+    bedrock_agentcore:
+      agent_id: megathon_risk_agent-LgqobjG7Pn
+      agent_arn: arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/megathon_risk_agent-LgqobjG7Pn
+      agent_session_id: c6f6391d-f50e-4115-b959-ce3ab36677c5
+    codebuild:
+      project_name: bedrock-agentcore-megathon_risk_agent-builder
+      execution_role: arn:aws:iam::842337469411:role/AmazonBedrockAgentCoreSDKCodeBuild-ap-northeast-2-bdb512bc78
+      source_bucket: bedrock-agentcore-codebuild-sources-842337469411-ap-northeast-2
+    memory:
+      mode: NO_MEMORY
+      memory_id: null
+      memory_arn: null
+      memory_name: null
+      event_expiry_days: 30
+      first_invoke_memory_check_done: false
+      was_created_by_toolkit: false
+    identity:
+      credential_providers: []
+      workload: null
+    aws_jwt:
+      enabled: false
+      audiences: []
+      signing_algorithm: ES384
+      issuer_url: null
+      duration_seconds: 300
+    authorizer_configuration: null
+    request_header_configuration: null
+    oauth_configuration: null
+    api_key_env_var_name: null
+    api_key_credential_provider_name: null
+    is_generated_by_agentcore_create: false
+  megathon_agent_risk_0921:
+    name: megathon_agent_risk_0921
+    language: python
+    node_version: '20'
+    entrypoint: /Users/hwan/Desktop/megathon/main.py
+    deployment_type: container
+    runtime_type: null
+    platform: linux/arm64
+    container_runtime: none
+    source_path: /Users/hwan/Desktop/megathon
+    aws:
+      execution_role: arn:aws:iam::842337469411:role/megathon_risk_agent_role
+      execution_role_auto_create: false
+      account: '842337469411'
+      region: ap-northeast-2
+      ecr_repository: 842337469411.dkr.ecr.ap-northeast-2.amazonaws.com/bedrock-agentcore-megathon_agent_risk_0921
+      ecr_auto_create: false
+      s3_path: null
+      s3_auto_create: false
+      network_configuration:
+        network_mode: PUBLIC
+        network_mode_config: null
+      protocol_configuration:
+        server_protocol: HTTP
+      observability:
+        enabled: true
+      lifecycle_configuration:
+        idle_runtime_session_timeout: null
+        max_lifetime: null
+    bedrock_agentcore:
+      agent_id: megathon_agent_risk_0921-buWhfR4YSB
+      agent_arn: arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/megathon_agent_risk_0921-buWhfR4YSB
+      agent_session_id: 6d63f035-be56-430e-a716-524b262c5604
+    codebuild:
+      project_name: bedrock-agentcore-megathon_agent_risk_0921-builder
+      execution_role: arn:aws:iam::842337469411:role/AmazonBedrockAgentCoreSDKCodeBuild-ap-northeast-2-d9283a6553
+      source_bucket: bedrock-agentcore-codebuild-sources-842337469411-ap-northeast-2
+    memory:
+      mode: NO_MEMORY
+      memory_id: null
+      memory_arn: null
+      memory_name: null
+      event_expiry_days: 30
+      first_invoke_memory_check_done: false
+      was_created_by_toolkit: false
+    identity:
+      credential_providers: []
+      workload: null
+    aws_jwt:
+      enabled: false
+      audiences: []
+      signing_algorithm: ES384
+      issuer_url: null
+      duration_seconds: 300
+    authorizer_configuration: null
+    request_header_configuration: null
+    oauth_configuration: null
+    api_key_env_var_name: null
+    api_key_credential_provider_name: null
+    is_generated_by_agentcore_create: false
+  risk_agent_1406:
+    name: risk_agent_1406
+    language: python
+    node_version: '20'
+    entrypoint: /Users/hwan/Desktop/risk_evaluation_agent/main.py
+    deployment_type: container
+    runtime_type: null
+    platform: linux/arm64
+    container_runtime: none
+    source_path: /Users/hwan/Desktop/risk_evaluation_agent
+    aws:
+      execution_role: arn:aws:iam::842337469411:role/megathon_risk_agent_role
+      execution_role_auto_create: false
+      account: '842337469411'
+      region: ap-northeast-2
+      ecr_repository: 842337469411.dkr.ecr.ap-northeast-2.amazonaws.com/bedrock-agentcore-risk_agent_1406
+      ecr_auto_create: false
+      s3_path: null
+      s3_auto_create: false
+      network_configuration:
+        network_mode: PUBLIC
+        network_mode_config: null
+      protocol_configuration:
+        server_protocol: HTTP
+      observability:
+        enabled: true
+      lifecycle_configuration:
+        idle_runtime_session_timeout: null
+        max_lifetime: null
+    bedrock_agentcore:
+      agent_id: risk_agent_1406-4IUprg2cOh
+      agent_arn: arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/risk_agent_1406-4IUprg2cOh
+      agent_session_id: 90f1c770-06a9-4f06-87ab-537569062baf
+    codebuild:
+      project_name: bedrock-agentcore-risk_agent_1406-builder
+      execution_role: arn:aws:iam::842337469411:role/AmazonBedrockAgentCoreSDKCodeBuild-ap-northeast-2-fb2be47263
+      source_bucket: bedrock-agentcore-codebuild-sources-842337469411-ap-northeast-2
+    memory:
+      mode: NO_MEMORY
+      memory_id: null
+      memory_arn: null
+      memory_name: null
+      event_expiry_days: 30
+      first_invoke_memory_check_done: false
+      was_created_by_toolkit: false
+    identity:
+      credential_providers: []
+      workload: null
+    aws_jwt:
+      enabled: false
+      audiences: []
+      signing_algorithm: ES384
+      issuer_url: null
+      duration_seconds: 300
+    authorizer_configuration: null
+    request_header_configuration: null
+    oauth_configuration: null
+    api_key_env_var_name: null
+    api_key_credential_provider_name: null
+    is_generated_by_agentcore_create: false
+  risk_agent_1412:
+    name: risk_agent_1412
+    language: python
+    node_version: '20'
+    entrypoint: /Users/hwan/Desktop/risk_evaluation_agent/main.py
+    deployment_type: container
+    runtime_type: null
+    platform: linux/arm64
+    container_runtime: none
+    source_path: /Users/hwan/Desktop/risk_evaluation_agent
+    aws:
+      execution_role: arn:aws:iam::842337469411:role/megathon_risk_agent_role
+      execution_role_auto_create: false
+      account: '842337469411'
+      region: ap-northeast-2
+      ecr_repository: 842337469411.dkr.ecr.ap-northeast-2.amazonaws.com/bedrock-agentcore-risk_agent_1412
+      ecr_auto_create: false
+      s3_path: null
+      s3_auto_create: false
+      network_configuration:
+        network_mode: PUBLIC
+        network_mode_config: null
+      protocol_configuration:
+        server_protocol: HTTP
+      observability:
+        enabled: true
+      lifecycle_configuration:
+        idle_runtime_session_timeout: null
+        max_lifetime: null
+    bedrock_agentcore:
+      agent_id: risk_agent_1412-AoOE5C7FI2
+      agent_arn: arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/risk_agent_1412-AoOE5C7FI2
+      agent_session_id: a3440665-5429-49af-8a03-70e7d54bf362
+    codebuild:
+      project_name: bedrock-agentcore-risk_agent_1412-builder
+      execution_role: arn:aws:iam::842337469411:role/AmazonBedrockAgentCoreSDKCodeBuild-ap-northeast-2-262782273e
+      source_bucket: bedrock-agentcore-codebuild-sources-842337469411-ap-northeast-2
+    memory:
+      mode: NO_MEMORY
+      memory_id: null
+      memory_arn: null
+      memory_name: null
+      event_expiry_days: 30
+      first_invoke_memory_check_done: false
+      was_created_by_toolkit: false
+    identity:
+      credential_providers: []
+      workload: null
+    aws_jwt:
+      enabled: false
+      audiences: []
+      signing_algorithm: ES384
+      issuer_url: null
+      duration_seconds: 300
+    authorizer_configuration: null
+    request_header_configuration: null
+    oauth_configuration: null
+    api_key_env_var_name: null
+    api_key_credential_provider_name: null
+    is_generated_by_agentcore_create: false
+  influence_agent:
+    name: influence_agent
+    language: python
+    node_version: '20'
+    entrypoint: /Users/hwan/Desktop/influence_evaluation_agent/main.py
+    deployment_type: container
+    runtime_type: null
+    platform: linux/arm64
+    container_runtime: none
+    source_path: /Users/hwan/Desktop/influence_evaluation_agent
+    aws:
+      execution_role: arn:aws:iam::842337469411:role/megathon_influence_agent_role
+      execution_role_auto_create: false
+      account: '842337469411'
+      region: ap-northeast-2
+      ecr_repository: 842337469411.dkr.ecr.ap-northeast-2.amazonaws.com/bedrock-agentcore-influence_agent
+      ecr_auto_create: false
+      s3_path: null
+      s3_auto_create: false
+      network_configuration:
+        network_mode: PUBLIC
+        network_mode_config: null
+      protocol_configuration:
+        server_protocol: HTTP
+      observability:
+        enabled: true
+      lifecycle_configuration:
+        idle_runtime_session_timeout: null
+        max_lifetime: null
+    bedrock_agentcore:
+      agent_id: influence_agent-jFNmCr7NcT
+      agent_arn: arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/influence_agent-jFNmCr7NcT
+      agent_session_id: 1a2f2f43-0c9a-4f6b-a1f8-764f5f659859
+    codebuild:
+      project_name: bedrock-agentcore-influence_agent-builder
+      execution_role: arn:aws:iam::842337469411:role/AmazonBedrockAgentCoreSDKCodeBuild-ap-northeast-2-0c2df68460
+      source_bucket: bedrock-agentcore-codebuild-sources-842337469411-ap-northeast-2
+    memory:
+      mode: NO_MEMORY
+      memory_id: null
+      memory_arn: null
+      memory_name: null
+      event_expiry_days: 30
+      first_invoke_memory_check_done: false
+      was_created_by_toolkit: false
+    identity:
+      credential_providers: []
+      workload: null
+    aws_jwt:
+      enabled: false
+      audiences: []
+      signing_algorithm: ES384
+      issuer_url: null
+      duration_seconds: 300
+    authorizer_configuration: null
+    request_header_configuration: null
+    oauth_configuration: null
+    api_key_env_var_name: null
+    api_key_credential_provider_name: null
+    is_generated_by_agentcore_create: false
+  patch_agent:
+    name: patch_agent
+    language: python
+    node_version: '20'
+    entrypoint: /Users/hwan/PatcherMultiAiagentProject/MultiAIagent/PatchExecAgent(AWS)/runtime_app.py
+    deployment_type: container
+    runtime_type: null
+    platform: linux/arm64
+    container_runtime: none
+    source_path: /Users/hwan/PatcherMultiAiagentProject/MultiAIagent/PatchExecAgent(AWS)
+    aws:
+      execution_role: arn:aws:iam::842337469411:role/megathon_patch_agent_role
+      execution_role_auto_create: false
+      account: '842337469411'
+      region: ap-northeast-2
+      ecr_repository: 842337469411.dkr.ecr.ap-northeast-2.amazonaws.com/bedrock-agentcore-patch_agent
+      ecr_auto_create: false
+      s3_path: null
+      s3_auto_create: false
+      network_configuration:
+        network_mode: PUBLIC
+        network_mode_config: null
+      protocol_configuration:
+        server_protocol: HTTP
+      observability:
+        enabled: true
+      lifecycle_configuration:
+        idle_runtime_session_timeout: null
+        max_lifetime: null
+    bedrock_agentcore:
+      agent_id: patch_agent-tv3CWxBmLK
+      agent_arn: arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/patch_agent-tv3CWxBmLK
+      agent_session_id: null
+    codebuild:
+      project_name: bedrock-agentcore-patch_agent-builder
+      execution_role: arn:aws:iam::842337469411:role/AmazonBedrockAgentCoreSDKCodeBuild-ap-northeast-2-7de5e4ef39
+      source_bucket: bedrock-agentcore-codebuild-sources-842337469411-ap-northeast-2
+    memory:
+      mode: NO_MEMORY
+      memory_id: null
+      memory_arn: null
+      memory_name: null
+      event_expiry_days: 30
+      first_invoke_memory_check_done: false
+      was_created_by_toolkit: false
+    identity:
+      credential_providers: []
+      workload: null
+    aws_jwt:
+      enabled: false
+      audiences: []
+      signing_algorithm: ES384
+      issuer_url: null
+      duration_seconds: 300
+    authorizer_configuration: null
+    request_header_configuration: null
+    oauth_configuration: null
+    api_key_env_var_name: null
+    api_key_credential_provider_name: null
+    is_generated_by_agentcore_create: false
