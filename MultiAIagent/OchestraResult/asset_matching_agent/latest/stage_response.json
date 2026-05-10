@@ -1,0 +1,202 @@
+{
+  "agent": "infra_matching_agent",
+  "status": "injected",
+  "result": {
+    "vpc_id": "vpc-02b63d54e73e54c1e",
+    "region": "ap-northeast-2",
+    "collected_at": "2026-05-10T16:34:09.083992+00:00",
+    "assets": [
+      {
+        "asset_id": "i-09639eabd0b862a74",
+        "hostname": "i-09639eabd0b862a74",
+        "tier": "app",
+        "availability_zone": "ap-northeast-2b",
+        "subnet_id": "subnet-021c668f40c69c0e2",
+        "private_ip": "10.0.12.253",
+        "public_ip": "",
+        "security_groups": [
+          "sg-06245d5b2f3f87cef"
+        ],
+        "iam_instance_profile": "",
+        "metadata": {
+          "environment": "production",
+          "network_exposure": "private",
+          "business_criticality": "high",
+          "data_classification": "unknown"
+        },
+        "network_context": {
+          "public_ip": "",
+          "listening_ports": [],
+          "is_internet_facing": false
+        },
+        "security_context": {
+          "attached_iam_role": "",
+          "running_as_root": [],
+          "imds_v2_enforced": false,
+          "selinux_enforced": false
+        },
+        "os_info": {
+          "vendor": "unknown",
+          "version": "unknown"
+        },
+        "installed_software": []
+      },
+      {
+        "asset_id": "i-01f2886bbc7080b0f",
+        "hostname": "i-01f2886bbc7080b0f",
+        "tier": "web",
+        "availability_zone": "ap-northeast-2b",
+        "subnet_id": "subnet-030e8193ec843b12d",
+        "private_ip": "10.0.2.172",
+        "public_ip": "43.203.175.36",
+        "security_groups": [
+          "sg-061e2443239c3dc5d"
+        ],
+        "iam_instance_profile": "",
+        "metadata": {
+          "environment": "production",
+          "network_exposure": "public",
+          "business_criticality": "high",
+          "data_classification": "unknown"
+        },
+        "network_context": {
+          "public_ip": "",
+          "listening_ports": [],
+          "is_internet_facing": false
+        },
+        "security_context": {
+          "attached_iam_role": "",
+          "running_as_root": [],
+          "imds_v2_enforced": false,
+          "selinux_enforced": false
+        },
+        "os_info": {
+          "vendor": "unknown",
+          "version": "unknown"
+        },
+        "installed_software": []
+      },
+      {
+        "asset_id": "i-0cc32279623d0e97b",
+        "hostname": "i-0cc32279623d0e97b",
+        "tier": "db",
+        "availability_zone": "ap-northeast-2a",
+        "subnet_id": "subnet-0c582323b01210abe",
+        "private_ip": "10.0.11.98",
+        "public_ip": "",
+        "security_groups": [
+          "sg-006758b24edd57eaf"
+        ],
+        "iam_instance_profile": "",
+        "metadata": {
+          "environment": "production",
+          "network_exposure": "private",
+          "business_criticality": "high",
+          "data_classification": "unknown"
+        },
+        "network_context": {
+          "public_ip": "",
+          "listening_ports": [],
+          "is_internet_facing": false
+        },
+        "security_context": {
+          "attached_iam_role": "",
+          "running_as_root": [],
+          "imds_v2_enforced": false,
+          "selinux_enforced": false
+        },
+        "os_info": {
+          "vendor": "unknown",
+          "version": "unknown"
+        },
+        "installed_software": []
+      },
+      {
+        "asset_id": "i-0157a1acf5c2365fb",
+        "hostname": "i-0157a1acf5c2365fb",
+        "tier": "app",
+        "availability_zone": "ap-northeast-2a",
+        "subnet_id": "subnet-0c582323b01210abe",
+        "private_ip": "10.0.11.9",
+        "public_ip": "",
+        "security_groups": [
+          "sg-06245d5b2f3f87cef"
+        ],
+        "iam_instance_profile": "",
+        "metadata": {
+          "environment": "production",
+          "network_exposure": "private",
+          "business_criticality": "high",
+          "data_classification": "unknown"
+        },
+        "network_context": {
+          "public_ip": "",
+          "listening_ports": [],
+          "is_internet_facing": false
+        },
+        "security_context": {
+          "attached_iam_role": "",
+          "running_as_root": [],
+          "imds_v2_enforced": false,
+          "selinux_enforced": false
+        },
+        "os_info": {
+          "vendor": "unknown",
+          "version": "unknown"
+        },
+        "installed_software": []
+      },
+      {
+        "asset_id": "i-03b4cf9c9b1625f23",
+        "hostname": "i-03b4cf9c9b1625f23",
+        "tier": "web",
+        "availability_zone": "ap-northeast-2a",
+        "subnet_id": "subnet-04ebb46b8e0bdc27a",
+        "private_ip": "10.0.1.166",
+        "public_ip": "43.203.220.229",
+        "security_groups": [
+          "sg-061e2443239c3dc5d"
+        ],
+        "iam_instance_profile": "",
+        "metadata": {
+          "environment": "production",
+          "network_exposure": "public",
+          "business_criticality": "high",
+          "data_classification": "unknown"
+        },
+        "network_context": {
+          "public_ip": "",
+          "listening_ports": [],
+          "is_internet_facing": false
+        },
+        "security_context": {
+          "attached_iam_role": "",
+          "running_as_root": [],
+          "imds_v2_enforced": false,
+          "selinux_enforced": false
+        },
+        "os_info": {
+          "vendor": "unknown",
+          "version": "unknown"
+        },
+        "installed_software": []
+      }
+    ],
+    "reachability": [
+      {
+        "from": "app",
+        "to": "db",
+        "ports": [
+          3306
+        ]
+      },
+      {
+        "from": "web",
+        "to": "app",
+        "ports": [
+          8080
+        ]
+      }
+    ]
+  }
+}

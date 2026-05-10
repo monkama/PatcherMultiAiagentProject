@@ -1,0 +1,16 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowInvokeChildAgentCoreRuntimes",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock-agentcore:InvokeAgentRuntime"
+      ],
+      "Resource": [
+        "arn:aws:bedrock-agentcore:ap-northeast-2:*:runtime/*",
+        "arn:aws:bedrock-agentcore:ap-northeast-2:*:runtime/*/runtime-endpoint/DEFAULT"
+      ]
+    }
+  ]
+}

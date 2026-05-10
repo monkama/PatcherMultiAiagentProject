@@ -1,0 +1,583 @@
+{
+  "target": "selected_cves",
+  "cve_ids": [
+    "CVE-2021-23017",
+    "CVE-2021-44228"
+  ],
+  "fetched_details": 2,
+  "failed_details": 0,
+  "errors": [],
+  "records": [
+    {
+      "cve_id": "CVE-2021-23017",
+      "title": "nginx: Off-by-one in ngx_resolver_copy() when labels are followed by a pointer to a root domain name",
+      "description": "A security issue in nginx resolver was identified, which might allow an attacker who is able to forge UDP packets from the DNS server to cause 1-byte memory overwrite, resulting in worker process crash or potential other impact.",
+      "cvss": {
+        "score": 7.7,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:L",
+        "provider": "nvd",
+        "vector_details": {
+          "version": "3.1",
+          "attack_vector": "network",
+          "attack_complexity": "high",
+          "privileges_required": "none",
+          "user_interaction": "none",
+          "scope": "unchanged",
+          "confidentiality_impact": "high",
+          "integrity_impact": "high",
+          "availability_impact": "low"
+        }
+      },
+      "weaknesses": [
+        "CWE-193"
+      ],
+      "nvd_cpe_configurations": [
+        {
+          "nodes": [
+            {
+              "cpeMatch": [
+                {
+                  "criteria": "cpe:2.3:a:f5:nginx:*:*:*:*:*:*:*:*",
+                  "matchCriteriaId": "236E1381-BE09-4C0B-9319-E803B7163ECC",
+                  "versionEndExcluding": "1.20.1",
+                  "versionStartIncluding": "0.6.18",
+                  "vulnerable": true
+                }
+              ],
+              "negate": false,
+              "operator": "OR"
+            }
+          ]
+        }
+      ],
+      "cwe_details": [
+        {
+          "cwe_id": "CWE-193",
+          "name": "Off-by-one Error",
+          "abstraction": "Base",
+          "structure": "Simple",
+          "status": "Draft",
+          "description": "A product calculates or uses an incorrect maximum or minimum value that is 1 more, or 1 less, than the correct value.",
+          "related_weaknesses": [
+            {
+              "nature": "ChildOf",
+              "cwe_id": "CWE-682"
+            },
+            {
+              "nature": "ChildOf",
+              "cwe_id": "CWE-682"
+            },
+            {
+              "nature": "CanPrecede",
+              "cwe_id": "CWE-617"
+            },
+            {
+              "nature": "CanPrecede",
+              "cwe_id": "CWE-170"
+            },
+            {
+              "nature": "CanPrecede",
+              "cwe_id": "CWE-119"
+            }
+          ],
+          "common_consequences": [
+            {
+              "scope": [
+                "Availability"
+              ],
+              "impact": [
+                "DoS: Crash, Exit, or Restart",
+                "DoS: Resource Consumption (CPU)",
+                "DoS: Resource Consumption (Memory)",
+                "DoS: Instability"
+              ],
+              "note": "This weakness will generally lead to undefined behavior and therefore crashes. In the case of overflows involving loop index variables, the likelihood of infinite loops is also high."
+            },
+            {
+              "scope": [
+                "Integrity"
+              ],
+              "impact": [
+                "Modify Memory"
+              ],
+              "note": "If the value in question is important to data (as opposed to flow), simple data corruption has occurred. Also, if the wrap around results in other conditions such as buffer overflows, further memory corruption may occur."
+            },
+            {
+              "scope": [
+                "Confidentiality",
+                "Availability",
+                "Access Control"
+              ],
+              "impact": [
+                "Execute Unauthorized Code or Commands",
+                "Bypass Protection Mechanism"
+              ],
+              "note": "This weakness can sometimes trigger buffer overflows which can be used to execute arbitrary code. This is usually outside the scope of a program's implicit security policy."
+            }
+          ],
+          "potential_mitigations": [
+            {
+              "phase": [
+                "Implementation"
+              ],
+              "description": "When copying character arrays or using character manipulation methods, the correct size parameter must be used to account for the null terminator that needs to be added at the end of the array. Some examples of functions susceptible to this weakness in C include strcpy(), strncpy(), strcat(), strncat(), printf(), sprintf(), scanf() and sscanf()."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "cve_id": "CVE-2021-44228",
+      "title": "Apache Log4j2 JNDI features do not protect against attacker controlled LDAP and other JNDI related endpoints",
+      "description": "Apache Log4j2 2.0-beta9 through 2.15.0 (excluding security releases 2.12.2, 2.12.3, and 2.3.1) JNDI features used in configuration, log messages, and parameters do not protect against attacker controlled LDAP and other JNDI related endpoints. An attacker who can control log messages or log message parameters can execute arbitrary code loaded from LDAP servers when message lookup substitution is enabled. From log4j 2.15.0, this behavior has been disabled by default. From version 2.16.0 (along with 2.12.2, 2.12.3, and 2.3.1), this functionality has been completely removed. Note that this vulnerability is specific to log4j-core and does not affect log4net, log4cxx, or other Apache Logging Services projects.",
+      "cvss": {
+        "score": 10,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H",
+        "provider": "vulnrichment",
+        "vector_details": {
+          "version": "3.1",
+          "attack_vector": "network",
+          "attack_complexity": "low",
+          "privileges_required": "none",
+          "user_interaction": "none",
+          "scope": "changed",
+          "confidentiality_impact": "high",
+          "integrity_impact": "high",
+          "availability_impact": "high"
+        }
+      },
+      "weaknesses": [
+        "CWE-20",
+        "CWE-400",
+        "CWE-502",
+        "CWE-917"
+      ],
+      "nvd_cpe_configurations": [
+        {
+          "nodes": [
+            {
+              "cpeMatch": [
+                {
+                  "criteria": "cpe:2.3:a:apache:log4j:*:*:*:*:*:*:*:*",
+                  "matchCriteriaId": "03FA5E81-F9C0-403E-8A4B-E4284E4E7B72",
+                  "versionEndExcluding": "2.3.1",
+                  "versionStartIncluding": "2.0.1",
+                  "vulnerable": true
+                },
+                {
+                  "criteria": "cpe:2.3:a:apache:log4j:*:*:*:*:*:*:*:*",
+                  "matchCriteriaId": "AED3D5EC-DAD5-4E5F-8BBD-B4E3349D84FC",
+                  "versionEndExcluding": "2.12.2",
+                  "versionStartIncluding": "2.4.0",
+                  "vulnerable": true
+                },
+                {
+                  "criteria": "cpe:2.3:a:apache:log4j:*:*:*:*:*:*:*:*",
+                  "matchCriteriaId": "D31D423D-FC4D-428A-B863-55AF472B80DC",
+                  "versionEndExcluding": "2.15.0",
+                  "versionStartIncluding": "2.13.0",
+                  "vulnerable": true
+                },
+                {
+                  "criteria": "cpe:2.3:a:apache:log4j:2.0:-:*:*:*:*:*:*",
+                  "matchCriteriaId": "17854E42-7063-4A55-BF2A-4C7074CC2D60",
+                  "vulnerable": true
+                },
+                {
+                  "criteria": "cpe:2.3:a:apache:log4j:2.0:beta9:*:*:*:*:*:*",
+                  "matchCriteriaId": "53F32FB2-6970-4975-8BD0-EAE12E9AD03A",
+                  "vulnerable": true
+                },
+                {
+                  "criteria": "cpe:2.3:a:apache:log4j:2.0:rc1:*:*:*:*:*:*",
+                  "matchCriteriaId": "B773ED91-1D39-42E6-9C52-D02210DE1A94",
+                  "vulnerable": true
+                },
+                {
+                  "criteria": "cpe:2.3:a:apache:log4j:2.0:rc2:*:*:*:*:*:*",
+                  "matchCriteriaId": "EF24312D-1A62-482E-8078-7EC24758B710",
+                  "vulnerable": true
+                }
+              ],
+              "negate": false,
+              "operator": "OR"
+            }
+          ]
+        }
+      ],
+      "cwe_details": [
+        {
+          "cwe_id": "CWE-20",
+          "name": "Improper Input Validation",
+          "abstraction": "Class",
+          "structure": "Simple",
+          "status": "Stable",
+          "description": "The product receives input or data, but it does\n        not validate or incorrectly validates that the input has the\n        properties that are required to process the data safely and\n        correctly.",
+          "related_weaknesses": [
+            {
+              "nature": "ChildOf",
+              "cwe_id": "CWE-707"
+            },
+            {
+              "nature": "PeerOf",
+              "cwe_id": "CWE-345"
+            },
+            {
+              "nature": "CanPrecede",
+              "cwe_id": "CWE-22"
+            },
+            {
+              "nature": "CanPrecede",
+              "cwe_id": "CWE-41"
+            },
+            {
+              "nature": "CanPrecede",
+              "cwe_id": "CWE-74"
+            },
+            {
+              "nature": "CanPrecede",
+              "cwe_id": "CWE-119"
+            },
+            {
+              "nature": "CanPrecede",
+              "cwe_id": "CWE-770"
+            }
+          ],
+          "common_consequences": [
+            {
+              "scope": [
+                "Availability"
+              ],
+              "impact": [
+                "DoS: Crash, Exit, or Restart",
+                "DoS: Resource Consumption (CPU)",
+                "DoS: Resource Consumption (Memory)"
+              ],
+              "note": "An attacker could provide unexpected values and cause a program crash or arbitrary control of resource allocation, leading to excessive consumption of resources such as memory and CPU."
+            },
+            {
+              "scope": [
+                "Confidentiality"
+              ],
+              "impact": [
+                "Read Memory",
+                "Read Files or Directories"
+              ],
+              "note": "An attacker could read confidential data if they are able to control resource references."
+            },
+            {
+              "scope": [
+                "Integrity",
+                "Confidentiality",
+                "Availability"
+              ],
+              "impact": [
+                "Modify Memory",
+                "Execute Unauthorized Code or Commands"
+              ],
+              "note": "An attacker could use malicious input to modify data or possibly alter control flow in unexpected ways, including arbitrary command execution."
+            }
+          ],
+          "potential_mitigations": [
+            {
+              "phase": [
+                "Architecture and Design"
+              ],
+              "description": "Consider using language-theoretic security (LangSec) techniques that characterize inputs using a formal language and build \"recognizers\" for that language. This effectively requires parsing to be a distinct layer that effectively enforces a boundary between raw input and internal data representations, instead of allowing parser code to be scattered throughout the program, where it could be subject to errors or inconsistencies that create weaknesses. [REF-1109] [REF-1110] [REF-1111]"
+            },
+            {
+              "phase": [
+                "Architecture and Design"
+              ],
+              "description": "Use an input validation framework such as Struts or the OWASP ESAPI Validation API. Note that using a framework does not automatically address all input validation problems; be mindful of weaknesses that could arise from misusing the framework itself (CWE-1173)."
+            },
+            {
+              "phase": [
+                "Architecture and Design",
+                "Implementation"
+              ],
+              "description": "Understand all the potential areas where untrusted inputs can enter the product, including but not limited to: parameters or arguments, cookies, anything read from the network, environment variables, reverse DNS lookups, query results, request headers, URL components, e-mail, files, filenames, databases, and any external systems that provide data to the application. Remember that such inputs may be obtained indirectly through API calls."
+            },
+            {
+              "phase": [
+                "Implementation"
+              ],
+              "description": "\n\nAssume all input is malicious. Use an \"accept known good\" input validation strategy, i.e., use a list of acceptable inputs that strictly conform to specifications. Reject any input that does not strictly conform to specifications, or transform it into something that does.\n\n\nWhen performing input validation, consider all potentially relevant properties, including length, type of input, the full range of acceptable values, missing or extra inputs, syntax, consistency across related fields, and conformance to business rules. As an example of business rule logic, \"boat\" may be syntactically valid because it only contains alphanumeric characters, but it is not valid if the input is only expected to contain colors such as \"red\" or \"blue.\"\n\n\nDo not rely exclusively on looking for malicious or malformed inputs. This is likely to miss at least one undesirable input, especially if the code's environment changes. This can give attackers enough room to bypass the intended validation. However, denylists can be useful for detecting potential attacks or determining which inputs are so malformed that they should be rejected outright.\n"
+            },
+            {
+              "phase": [
+                "Architecture and Design"
+              ],
+              "description": "\n\nFor any security checks that are performed on the client side, ensure that these checks are duplicated on the server side, in order to avoid CWE-602. Attackers can bypass the client-side checks by modifying values after the checks have been performed, or by changing the client to remove the client-side checks entirely. Then, these modified values would be submitted to the server.\n\n\nEven though client-side checks provide minimal benefits with respect to server-side security, they are still useful. First, they can support intrusion detection. If the server receives input that should have been rejected by the client, then it may be an indication of an attack. Second, client-side error-checking can provide helpful feedback to the user about the expectations for valid input. Third, there may be a reduction in server-side processing time for accidental input errors, although this is typically a small savings.\n"
+            },
+            {
+              "phase": [
+                "Implementation"
+              ],
+              "description": "When your application combines data from multiple sources, perform the validation after the sources have been combined. The individual data elements may pass the validation step but violate the intended restrictions after they have been combined."
+            },
+            {
+              "phase": [
+                "Implementation"
+              ],
+              "description": "Be especially careful to validate all input when invoking code that crosses language boundaries, such as from an interpreted language to native code. This could create an unexpected interaction between the language boundaries. Ensure that you are not violating any of the expectations of the language with which you are interfacing. For example, even though Java may not be susceptible to buffer overflows, providing a large argument in a call to native code might trigger an overflow."
+            },
+            {
+              "phase": [
+                "Implementation"
+              ],
+              "description": "Directly convert your input type into the expected data type, such as using a conversion function that translates a string into a number. After converting to the expected data type, ensure that the input's values fall within the expected range of allowable values and that multi-field consistencies are maintained."
+            },
+            {
+              "phase": [
+                "Implementation"
+              ],
+              "description": "\n\nInputs should be decoded and canonicalized to the application's current internal representation before being validated (CWE-180, CWE-181). Make sure that your application does not inadvertently decode the same input twice (CWE-174). Such errors could be used to bypass allowlist schemes by introducing dangerous inputs after they have been checked. Use libraries such as the OWASP ESAPI Canonicalization control.\n\n\nConsider performing repeated canonicalization until your input does not change any more. This will avoid double-decoding and similar scenarios, but it might inadvertently modify inputs that are allowed to contain properly-encoded dangerous content.\n"
+            },
+            {
+              "phase": [
+                "Implementation"
+              ],
+              "description": "When exchanging data between components, ensure that both components are using the same character encoding. Ensure that the proper encoding is applied at each interface. Explicitly set the encoding you are using whenever the protocol allows you to do so."
+            }
+          ]
+        },
+        {
+          "cwe_id": "CWE-400",
+          "name": "Uncontrolled Resource Consumption",
+          "abstraction": "Class",
+          "structure": "Simple",
+          "status": "Draft",
+          "description": "The product does not properly control the allocation and maintenance of a limited resource.",
+          "related_weaknesses": [
+            {
+              "nature": "ChildOf",
+              "cwe_id": "CWE-664"
+            }
+          ],
+          "common_consequences": [
+            {
+              "scope": [
+                "Availability"
+              ],
+              "impact": [
+                "DoS: Crash, Exit, or Restart",
+                "DoS: Resource Consumption (CPU)",
+                "DoS: Resource Consumption (Memory)",
+                "DoS: Resource Consumption (Other)"
+              ],
+              "note": "If an attacker can trigger the allocation of the limited resources, but the number or size of the resources is not controlled, then the most common result is denial of service. This would prevent valid users from accessing the product, and it could potentially have an impact on the surrounding environment, i.e., the product may slow down, crash due to unhandled errors, or lock out legitimate users. For example, a memory exhaustion attack against an application could slow down the application as well as its host operating system."
+            },
+            {
+              "scope": [
+                "Access Control",
+                "Other"
+              ],
+              "impact": [
+                "Bypass Protection Mechanism",
+                "Other"
+              ],
+              "note": "In some cases it may be possible to force the product to \"fail open\" in the event of resource exhaustion. The state of the product -- and possibly the security functionality - may then be compromised."
+            }
+          ],
+          "potential_mitigations": [
+            {
+              "phase": [
+                "Architecture and Design"
+              ],
+              "description": "Design throttling mechanisms into the system architecture. The best protection is to limit the amount of resources that an unauthorized user can cause to be expended. A strong authentication and access control model will help prevent such attacks from occurring in the first place. The login application should be protected against DoS attacks as much as possible. Limiting the database access, perhaps by caching result sets, can help minimize the resources expended. To further limit the potential for a DoS attack, consider tracking the rate of requests received from users and blocking requests that exceed a defined rate threshold."
+            },
+            {
+              "phase": [
+                "Architecture and Design"
+              ],
+              "description": "\n\nMitigation of resource exhaustion attacks requires that the target system either:\n\n\n  - recognizes the attack and denies that user further access for a given amount of time, or\n\n  - uniformly throttles all requests in order to make it more difficult to consume resources more quickly than they can again be freed.\n\nThe first of these solutions is an issue in itself though, since it may allow attackers to prevent the use of the system by a particular valid user. If the attacker impersonates the valid user, they may be able to prevent the user from accessing the server in question.\n\nThe second solution is simply difficult to effectively institute -- and even when properly done, it does not provide a full solution. It simply makes the attack require more resources on the part of the attacker.\n"
+            },
+            {
+              "phase": [
+                "Architecture and Design"
+              ],
+              "description": "Ensure that protocols have specific limits of scale placed on them."
+            },
+            {
+              "phase": [
+                "Implementation"
+              ],
+              "description": "Ensure that all failures in resource allocation place the system into a safe posture."
+            }
+          ]
+        },
+        {
+          "cwe_id": "CWE-502",
+          "name": "Deserialization of Untrusted Data",
+          "abstraction": "Base",
+          "structure": "Simple",
+          "status": "Draft",
+          "description": "The product deserializes untrusted data without sufficiently ensuring that the resulting data will be valid.",
+          "related_weaknesses": [
+            {
+              "nature": "ChildOf",
+              "cwe_id": "CWE-913"
+            },
+            {
+              "nature": "ChildOf",
+              "cwe_id": "CWE-913"
+            },
+            {
+              "nature": "PeerOf",
+              "cwe_id": "CWE-915"
+            }
+          ],
+          "common_consequences": [
+            {
+              "scope": [
+                "Integrity"
+              ],
+              "impact": [
+                "Modify Application Data",
+                "Unexpected State"
+              ],
+              "note": "Attackers can modify unexpected objects or data that was assumed to be safe from modification. Deserialized data or code could be modified without using the provided accessor functions, or unexpected functions could be invoked."
+            },
+            {
+              "scope": [
+                "Availability"
+              ],
+              "impact": [
+                "DoS: Resource Consumption (CPU)"
+              ],
+              "note": "If a function is making an assumption on when to terminate, based on a sentry in a string, it could easily never terminate."
+            },
+            {
+              "scope": [
+                "Other"
+              ],
+              "impact": [
+                "Varies by Context"
+              ],
+              "note": "The consequences can vary widely, because it depends on which objects or methods are being deserialized, and how they are used. Making an assumption that the code in the deserialized object is valid is dangerous and can enable exploitation. One example is attackers using gadget chains to perform unauthorized actions, such as generating a shell."
+            }
+          ],
+          "potential_mitigations": [
+            {
+              "phase": [
+                "Architecture and Design",
+                "Implementation"
+              ],
+              "description": "If available, use the signing/sealing features of the programming language to assure that deserialized data has not been tainted. For example, a hash-based message authentication code (HMAC) could be used to ensure that data has not been modified."
+            },
+            {
+              "phase": [
+                "Implementation"
+              ],
+              "description": "When deserializing data, populate a new object rather than just deserializing. The result is that the data flows through safe input validation and that the functions are safe."
+            },
+            {
+              "phase": [
+                "Implementation"
+              ],
+              "description": "Explicitly define a final object() to prevent deserialization."
+            },
+            {
+              "phase": [
+                "Architecture and Design",
+                "Implementation"
+              ],
+              "description": "\n\nMake fields transient to protect them from deserialization.\n\n\nAn attempt to serialize and then deserialize a class containing transient fields will result in NULLs where the transient data should be. This is an excellent way to prevent time, environment-based, or sensitive variables from being carried over and used improperly.\n"
+            },
+            {
+              "phase": [
+                "Implementation"
+              ],
+              "description": "Avoid having unnecessary types or gadgets (a sequence of instances and method invocations that can self-execute during the deserialization process, often found in libraries) available that can be leveraged for malicious ends. This limits the potential for unintended or unauthorized types and gadgets to be leveraged by the attacker. Add only acceptable classes to an allowlist. Note: new gadgets are constantly being discovered, so this alone is not a sufficient mitigation."
+            },
+            {
+              "phase": [
+                "Architecture and Design",
+                "Implementation"
+              ],
+              "description": "Employ cryptography of the data or code for protection. However, it's important to note that it would still be client-side security. This is risky because if the client is compromised then the security implemented on the client (the cryptography) can be bypassed."
+            },
+            {
+              "phase": [
+                "Operation"
+              ],
+              "description": "Use an application firewall that can detect attacks against this weakness. It can be beneficial in cases in which the code cannot be fixed (because it is controlled by a third party), as an emergency prevention measure while more comprehensive software assurance measures are applied, or to provide defense in depth [REF-1481]."
+            }
+          ]
+        },
+        {
+          "cwe_id": "CWE-917",
+          "name": "Improper Neutralization of Special Elements used in an Expression Language Statement ('Expression Language Injection')",
+          "abstraction": "Base",
+          "structure": "Simple",
+          "status": "Incomplete",
+          "description": "The product constructs all or part of an expression language (EL) statement in a framework such as a Java Server Page (JSP) using externally-influenced input from an upstream component, but it does not neutralize or incorrectly neutralizes special elements that could modify the intended EL statement before it is executed.",
+          "related_weaknesses": [
+            {
+              "nature": "ChildOf",
+              "cwe_id": "CWE-77"
+            },
+            {
+              "nature": "PeerOf",
+              "cwe_id": "CWE-1336"
+            },
+            {
+              "nature": "ChildOf",
+              "cwe_id": "CWE-74"
+            },
+            {
+              "nature": "ChildOf",
+              "cwe_id": "CWE-77"
+            },
+            {
+              "nature": "ChildOf",
+              "cwe_id": "CWE-77"
+            }
+          ],
+          "common_consequences": [
+            {
+              "scope": [
+                "Confidentiality"
+              ],
+              "impact": [
+                "Read Application Data"
+              ],
+              "note": ""
+            },
+            {
+              "scope": [
+                "Integrity"
+              ],
+              "impact": [
+                "Execute Unauthorized Code or Commands"
+              ],
+              "note": ""
+            }
+          ],
+          "potential_mitigations": [
+            {
+              "phase": [
+                "Architecture and Design"
+              ],
+              "description": "Avoid adding user-controlled data into an expression interpreter when possible."
+            },
+            {
+              "phase": [
+                "Implementation"
+              ],
+              "description": "\n\nIf user-controlled data must be added to an expression interpreter, one or more of the following should be performed:\n\n\n  - Validate that the user input will not evaluate as an expression\n\n  - Encode the user input in a way that ensures it is not evaluated as an expression\n\n"
+            },
+            {
+              "phase": [
+                "System Configuration",
+                "Operation"
+              ],
+              "description": "The framework or tooling might allow the developer to disable or deactivate the processing of EL expressions, such as setting the isELIgnored attribute for a JSP page to \"true\"."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

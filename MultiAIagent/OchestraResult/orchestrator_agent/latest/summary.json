@@ -1,0 +1,18 @@
+{
+  "run_tag": "20260511_015803__risk_only",
+  "mode": "risk_only",
+  "pipeline": [
+    "vuln_collector_agent",
+    "infra_matching_agent",
+    "risk_evaluation_agent"
+  ],
+  "agent_message": "risk_only 모드 실행 완료",
+  "orchestrator_result_dir": "/Users/jms/Desktop/project/PacherAgents/MultiAIagent/OchestraResult/orchestrator_agent/20260511_015803__risk_only",
+  "saved_agent_dirs": {
+    "vuln_collector_agent": "/Users/jms/Desktop/project/PacherAgents/MultiAIagent/OchestraResult/vuln_collector_agent/20260511_015803__risk_only",
+    "asset_matching_agent": "/Users/jms/Desktop/project/PacherAgents/MultiAIagent/OchestraResult/asset_matching_agent/20260511_015803__risk_only",
+    "risk_evaluation_agent": "/Users/jms/Desktop/project/PacherAgents/MultiAIagent/OchestraResult/risk_evaluation_agent/20260511_015803__risk_only",
+    "patch_impact_agent": null,
+    "patch_execution_agent": null
+  }
+}

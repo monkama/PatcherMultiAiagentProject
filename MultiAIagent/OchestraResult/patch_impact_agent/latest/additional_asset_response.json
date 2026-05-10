@@ -1,0 +1,17 @@
+{
+  "_meta": {
+    "payload_type": "patch_followup_response_bundle",
+    "payload_purpose": "asset 에이전트가 추가 질문에 대해 수집한 관측 사실 응답 묶음입니다.",
+    "field_descriptions": {
+      "responses": "자산별 follow-up 응답 목록입니다.",
+      "responses[].cve_id": "응답 대상 CVE ID입니다.",
+      "responses[].asset_id": "응답 대상 자산 ID입니다.",
+      "responses[].answers": "질문별 응답 목록입니다.",
+      "responses[].unknowns": "확인하지 못한 항목 목록입니다.",
+      "responses[].transcript": "질문별 원시 응답과 정규화 응답 기록입니다."
+    }
+  },
+  "generated_at": "2026-05-09T08:59:12.755034+00:00",
+  "response_count": 0,
+  "responses": []
+}

@@ -12,6 +12,7 @@ from pipeline_stages import (
     PATCH_FOLLOWUP_RESULT_PATH,
     PATCH_PRE_RESULT_PATH,
     PIPELINE_RESULT_PATH,
+    PATCH_EXEC_RESULT_PATH,
     run_asset_stage,
     run_patch_finalize_stage,
     run_patch_followup_stage,
@@ -19,6 +20,7 @@ from pipeline_stages import (
     run_patch_stage,
     run_risk_stage,
     run_vuln_stage,
+    run_patch_execution_stage,
 )
 
 
@@ -29,9 +31,8 @@ DEFAULT_INFRA_MATCHING_RUNTIME_ARN = (
     os.environ.get("INFRA_MATCHING_AGENTCORE_ARN")
     or os.environ.get("ASSET_MATCHING_AGENTCORE_ARN")
     or os.environ.get("ASSET_MATCHING_ARN")
-    or "arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/asset_matching_agent-zoDcgCEt8u"
 )
-VALID_MODES = {"full", "vuln_only", "asset_only", "risk_only", "patch_only", "test"}
+VALID_MODES = {"full", "vuln_only", "asset_only", "risk_only", "patch_only", "test", "patch_exec_only"}
 STAGE_ORDER = {
     "vuln": 1,
     "asset": 2,
@@ -39,6 +40,7 @@ STAGE_ORDER = {
     "patch_pre": 4,
     "patch_followup": 5,
     "patch_final": 6,
+    "patch_execution": 7,
 }
 
 def _utc_now() -> str:
@@ -67,7 +69,7 @@ def _resolve_mode(payload: dict[str, Any]) -> str:
     }
     mode = aliases.get(raw_mode, raw_mode)
     if mode not in VALID_MODES:
-        raise ValueError("mode 는 full | vuln_only | asset_only | risk_only | patch_only | test 중 하나여야 합니다.")
+        raise ValueError("mode 는 full | vuln_only | asset_only | risk_only | patch_only | test | patch_exec_only 중 하나여야 합니다.")
     return mode
 
 
@@ -78,7 +80,7 @@ def _build_config(payload: dict[str, Any]) -> dict[str, Any]:
         "stack_name": str(payload.get("stack_name") or "").strip() or DEFAULT_STACK_NAME,
         "region": str(payload.get("region") or "ap-northeast-2"),
         "infra_matching_runtime_arn": (
-            str(payload.get("infra_matching_runtime_arn") or "").strip() or DEFAULT_INFRA_MATCHING_RUNTIME_ARN
+            str(payload.get("infra_matching_runtime_arn") or "").strip() or DEFAULT_INFRA_MATCHING_RUNTIME_ARN or None
         ),
         "patch_impact_runtime_arn": str(
             payload.get("patch_impact_runtime_arn") or payload.get("patch_runtime_arn") or ""
@@ -105,6 +107,18 @@ def _pick_payload_value(payload: dict[str, Any], key: str) -> Any:
     test_inputs = payload.get("test_inputs")
     if isinstance(test_inputs, dict) and key in test_inputs and test_inputs.get(key) is not None:
         return test_inputs.get(key)
+    return None
+
+
+def _resolve_requested_cve_ids(payload: dict[str, Any]) -> list[str] | None:
+    value = _pick_payload_value(payload, "cve_ids") or _pick_payload_value(payload, "CVE_IDS") or _pick_payload_value(payload, "cve_id")
+    if isinstance(value, str):
+        items = [part.strip().upper() for part in value.split(",")]
+        normalized = [item for item in items if item]
+        return normalized or None
+    if isinstance(value, list):
+        normalized = [str(item).strip().upper() for item in value if str(item).strip()]
+        return normalized or None
     return None
 
 
@@ -198,6 +212,19 @@ def _seed_state(payload: dict[str, Any]) -> dict[str, Any]:
                 "result": patch_final_stage,
             }
 
+    patch_execution_stage = _pick_payload_value(payload, "patch_execution_stage") or _pick_payload_value(payload, "patch_execution_result")
+    if isinstance(patch_execution_stage, dict):
+        if isinstance(patch_execution_stage.get("patch_execution_stage"), dict):
+            state["patch_execution_stage"] = patch_execution_stage["patch_execution_stage"]
+        elif "result" in patch_execution_stage:
+            state["patch_execution_stage"] = patch_execution_stage
+        else:
+            state["patch_execution_stage"] = {
+                "agent": "patch_execution_agent",
+                "status": "injected",
+                "result": patch_execution_stage,
+            }
+
     return state
 
 
@@ -242,6 +269,7 @@ def _build_pipeline_result(state: dict[str, Any], config: dict[str, Any], agent_
         "infra_matching_agent" if state.get("asset_stage") else None,
         "risk_evaluation_agent" if state.get("risk_stage") else None,
         "patch_impact_agent" if patch_present else None,
+        "patch_execution_agent" if state.get("patch_execution_stage") else None,
     ]
     result = {
         "agent": "orchestrator_agent",
@@ -258,6 +286,7 @@ def _build_pipeline_result(state: dict[str, Any], config: dict[str, Any], agent_
             "asset_to_patch": ["infra_context"],
             "vuln_to_patch": ["operational_impact_payload"],
             "risk_to_patch": ["risk_evaluation_result"],
+            "patch_final_to_execution": ["patch_final_stage.result"],
         },
         "agent_message": agent_message,
         "vuln_stage": state.get("vuln_stage"),
@@ -266,11 +295,13 @@ def _build_pipeline_result(state: dict[str, Any], config: dict[str, Any], agent_
         "patch_pre_stage": state.get("patch_pre_stage"),
         "followup_stage": state.get("followup_stage"),
         "patch_final_stage": state.get("patch_final_stage"),
+        "patch_execution_stage": state.get("patch_execution_stage"),
         "artifacts": {
             "patch_pre_path": str(PATCH_PRE_RESULT_PATH),
             "patch_followup_request_path": str(PATCH_FOLLOWUP_REQUEST_PATH),
             "patch_followup_response_path": str(PATCH_FOLLOWUP_RESULT_PATH),
             "patch_final_path": str(PATCH_FINAL_RESULT_PATH),
+            "patch_execution_path": str(PATCH_EXEC_RESULT_PATH),
             "pipeline_result_path": str(PIPELINE_RESULT_PATH),
         },
         "test_interface": {
@@ -358,7 +389,7 @@ def run_vuln_only(payload: dict[str, Any]) -> dict[str, Any]:
     state = _seed_state(payload)
     config["injected_state"] = list(state.keys())
     if "vuln_stage" not in state:
-        state["vuln_stage"] = run_vuln_stage()["vuln_stage"]
+        state["vuln_stage"] = run_vuln_stage(cve_ids=_resolve_requested_cve_ids(payload))["vuln_stage"]
     return _build_pipeline_result(state, config, "vuln_only 모드 실행 완료")
 
 
@@ -396,6 +427,26 @@ def run_patch_only(payload: dict[str, Any]) -> dict[str, Any]:
     return _build_pipeline_result(state, config, "patch_only 모드 실행 완료")
 
 
+def run_patch_exec_only(payload: dict[str, Any]) -> dict[str, Any]:
+    config = _build_config(payload)
+    state = _seed_state(payload)
+    config["injected_state"] = list(state.keys())
+
+    # 클라이언트가 보낸 최종 영향도 데이터 추출
+    impact_data = _pick_payload_value(payload, "patch_final_result")
+    if not impact_data:
+        raise ValueError("patch_exec_only 모드에서는 patch_final_result 가 필요합니다.")
+
+    # 패치 실행 에이전트 단독 호출
+    state["patch_execution_stage"] = run_patch_execution_stage(
+        region=config["region"],
+        prompt=payload.get("prompt", "보안 패치 분석 및 자동 실행"),
+        impact_data=impact_data,
+    )["patch_execution_stage"]
+
+    return _build_pipeline_result(state, config, "patch_exec_only 모드 실행 완료")
+
+
 def run_orchestrator(payload: dict[str, Any]) -> dict[str, Any]:
     config = _build_config(payload)
     state = _seed_state(payload)
@@ -405,7 +456,7 @@ def run_orchestrator(payload: dict[str, Any]) -> dict[str, Any]:
     stop_stage = config["stop_stage"]
 
     if _should_execute(stop_stage, "vuln") and "vuln_stage" not in state:
-        state["vuln_stage"] = run_vuln_stage()["vuln_stage"]
+        state["vuln_stage"] = run_vuln_stage(cve_ids=_resolve_requested_cve_ids(payload))["vuln_stage"]
     if stop_stage == "vuln":
         return _build_pipeline_result(state, config, "vuln 단계까지 실행 완료")
 
@@ -491,4 +542,6 @@ def invoke(payload: dict[str, Any]) -> dict[str, Any]:
         return run_risk_only(payload)
     if mode == "patch_only":
         return run_patch_only(payload)
+    if mode == "patch_exec_only":
+        return run_patch_exec_only(payload)
     return run_orchestrator(payload)

@@ -14,6 +14,14 @@ from botocore.config import Config
 from dotenv import load_dotenv
 
 
+def _first_env_value(*keys: str) -> str:
+    for key in keys:
+        value = str(os.environ.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
 PROJECT_ROOT = Path(__file__).resolve().parent
 REPO_ROOT = PROJECT_ROOT.parent
 ENV_PATH_CANDIDATES = (
@@ -23,23 +31,31 @@ ENV_PATH_CANDIDATES = (
 RESULT_ROOT = PROJECT_ROOT / "OchestraResult"
 CONVERSATION_LOG_ROOT = PROJECT_ROOT / "Conversationlog"
 PATCH_TO_ASSET_LOG_ROOT = CONVERSATION_LOG_ROOT / "PatchToAsset"
+RISK_TO_ASSET_LOG_ROOT = CONVERSATION_LOG_ROOT / "RiskToAsset"
 DEFAULT_REGION = "ap-northeast-2"
 DEFAULT_STACK_NAME = "megathon"
-DEFAULT_ORCHESTRATOR_ARN = (
-    "arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/orchestrator_agent-JZKEPYHOwx"
+ORCHESTRATOR_RUNTIME_ARN_ENV_KEYS = (
+    "ORCHESTRATOR_AGENTCORE_ARN",
+    "ORCHESTRATOR_ARN",
+    "ORCHESTRATOR_RUNTIME_ARN",
 )
-DEFAULT_PATCH_IMPACT_ARN = (
-    "arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/patch_impact_container-qNIi2mCjRa"
+PATCH_IMPACT_RUNTIME_ARN_ENV_KEYS = (
+    "PATCH_IMPACT_AGENTCORE_ARN",
+    "PATCH_IMPACT_ARN",
 )
-DEFAULT_INFRA_MATCHING_ARN = (
-    os.environ.get("INFRA_MATCHING_AGENTCORE_ARN")
-    or os.environ.get("ASSET_MATCHING_AGENTCORE_ARN")
-    or os.environ.get("ASSET_MATCHING_ARN")
-    or "arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/asset_matching_agent-zoDcgCEt8u"
+INFRA_MATCHING_RUNTIME_ARN_ENV_KEYS = (
+    "INFRA_MATCHING_AGENTCORE_ARN",
+    "ASSET_MATCHING_AGENTCORE_ARN",
+    "ASSET_MATCHING_ARN",
 )
-DEFAULT_PATCH_EXECUTION_ARN = (
-    "arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/patch_agent-tv3CWxBmLK"
+PATCH_EXECUTION_RUNTIME_ARN_ENV_KEYS = (
+    "PATCH_EXECUTION_AGENTCORE_ARN",
+    "PATCH_EXECUTION_ARN",
 )
+DEFAULT_ORCHESTRATOR_ARN = ""
+DEFAULT_PATCH_IMPACT_ARN = ""
+DEFAULT_INFRA_MATCHING_ARN = ""
+DEFAULT_PATCH_EXECUTION_ARN = ""
 DEFAULT_READ_TIMEOUT = 900
 DEFAULT_CONNECT_TIMEOUT = 10
 
@@ -50,6 +66,7 @@ MODE_OPTIONS = {
     "4": ("risk_only", "위험 평가만"),
     "5": ("patch_only", "패치 영향도만"),
     "6": ("test", "중간 단계 주입 테스트"),
+    "7": ("patch_exec_only", "패치 실행만"),
 }
 
 STOP_STAGE_OPTIONS = {
@@ -77,6 +94,18 @@ def _load_env() -> None:
             break
 
 
+def _refresh_runtime_defaults() -> None:
+    global DEFAULT_ORCHESTRATOR_ARN
+    global DEFAULT_PATCH_IMPACT_ARN
+    global DEFAULT_INFRA_MATCHING_ARN
+    global DEFAULT_PATCH_EXECUTION_ARN
+
+    DEFAULT_ORCHESTRATOR_ARN = _first_env_value(*ORCHESTRATOR_RUNTIME_ARN_ENV_KEYS)
+    DEFAULT_PATCH_IMPACT_ARN = _first_env_value(*PATCH_IMPACT_RUNTIME_ARN_ENV_KEYS)
+    DEFAULT_INFRA_MATCHING_ARN = _first_env_value(*INFRA_MATCHING_RUNTIME_ARN_ENV_KEYS)
+    DEFAULT_PATCH_EXECUTION_ARN = _first_env_value(*PATCH_EXECUTION_RUNTIME_ARN_ENV_KEYS)
+
+
 def _print_usage_guide() -> None:
     print(
         "\n[사용 방법]\n"
@@ -100,12 +129,15 @@ def _print_usage_guide() -> None:
         "5. patch_only\n"
         "   패치 영향도 에이전트만 실행\n"
         "   필요 입력: infra_context.json, risk_evaluation_result.json, operational_impact_payloads.json\n"
-        "   patch ARN은 기본값이 새 container runtime 으로 잡혀 있고, 바꾸고 싶으면 직접 입력하면 됩니다.\n"
+        "   runtime ARN은 .env 에 설정하거나 실행 시 직접 입력하면 됩니다.\n"
         "   patch는 현재 Bedrock 기반이며 OpenAI 키 입력은 더 이상 필요하지 않습니다.\n"
         "   stage1 정리, asset follow-up, final 판단을 한 번의 patch 호출 안에서 처리합니다.\n"
         "6. test\n"
         "   중간 단계 주입 테스트\n"
         "   stop_stage 를 고르고, 그 단계에 필요한 JSON만 넣으면 됩니다.\n"
+        "7. patch_exec_only\n"
+        "   패치 실행 에이전트만 단독으로 실행\n"
+        "   필요 입력: patch_impact_final_result.json\n"
     )
     print(
         "[빠른 예시]\n"
@@ -170,6 +202,15 @@ def _prompt_optional_runtime_arn(label: str, default: str | None = None) -> str:
     return value.strip()
 
 
+def _require_runtime_arn(value: str, label: str, env_keys: tuple[str, ...]) -> str:
+    resolved = value.strip()
+    if resolved:
+        return resolved
+    raise ValueError(
+        f"{label}이 필요합니다. 직접 입력하거나 .env 에 {', '.join(env_keys)} 중 하나를 설정하세요."
+    )
+
+
 def _redact_secrets(data: Any) -> Any:
     secret_keys = {"api_key", "openai_api_key"}
     if isinstance(data, dict):
@@ -203,6 +244,13 @@ def _choose_stop_stage() -> str:
     if selected not in STOP_STAGE_OPTIONS:
         raise ValueError("지원하지 않는 stop_stage 번호입니다.")
     return STOP_STAGE_OPTIONS[selected]
+
+
+def _prompt_cve_ids(default: str | None = None) -> list[str] | None:
+    raw = _prompt_with_default("CVE 목록 (쉼표 구분, 비우면 에이전트 기본값 사용)", default)
+    items = [part.strip().upper() for part in raw.split(",")] if raw else []
+    normalized = [item for item in items if item]
+    return normalized or None
 
 
 def _latest_from_dir(path: Path, filename: str) -> Path | None:
@@ -330,12 +378,18 @@ def _build_payload_interactively() -> tuple[dict[str, Any], str]:
     mode, label = _choose_mode()
     region = _prompt_with_default("리전", os.environ.get("AWS_DEFAULT_REGION") or DEFAULT_REGION)
     stack_name = _prompt_with_default("스택 이름", os.environ.get("CF_STACK_NAME") or DEFAULT_STACK_NAME)
+    cve_default = str(os.environ.get("VULN_CVE_IDS") or "").strip() or None
 
     payload: dict[str, Any] = {
         "mode": mode,
         "region": region,
         "stack_name": stack_name,
     }
+
+    if mode in {"full", "vuln_only"}:
+        cve_ids = _prompt_cve_ids(cve_default)
+        if cve_ids:
+            payload["cve_ids"] = cve_ids
 
     if mode == "asset_only":
         payload["asset_matching_payload"] = _prompt_json_file("asset_matching_payload", "asset_matching_payload", required=True)
@@ -344,26 +398,68 @@ def _build_payload_interactively() -> tuple[dict[str, Any], str]:
         payload["risk_assessment_payload"] = _prompt_json_file("risk_assessment_payload", "risk_assessment_payload", required=True)
     elif mode == "patch_only":
         patch_runtime_arn = _prompt_optional_runtime_arn("Patch runtime ARN", os.environ.get("PATCH_IMPACT_ARN") or DEFAULT_PATCH_IMPACT_ARN)
-        if patch_runtime_arn:
-            payload["patch_impact_runtime_arn"] = patch_runtime_arn
-        payload["infra_matching_runtime_arn"] = DEFAULT_INFRA_MATCHING_ARN
+        payload["patch_impact_runtime_arn"] = _require_runtime_arn(
+            patch_runtime_arn,
+            "Patch runtime ARN",
+            PATCH_IMPACT_RUNTIME_ARN_ENV_KEYS,
+        )
+        infra_matching_runtime_arn = _prompt_optional_runtime_arn(
+            "Infra Matching runtime ARN",
+            DEFAULT_INFRA_MATCHING_ARN,
+        )
+        payload["infra_matching_runtime_arn"] = _require_runtime_arn(
+            infra_matching_runtime_arn,
+            "Infra Matching runtime ARN",
+            INFRA_MATCHING_RUNTIME_ARN_ENV_KEYS,
+        )
         payload["infra_context"] = _prompt_json_file("infra_context", "infra_context", required=True)
         payload["risk_result"] = _prompt_json_file("risk_result", "risk_result", required=True)
         payload["operational_payload"] = _prompt_json_file("operational_payload", "operational_payload", required=True)
         payload["allow_followup"] = True
+    elif mode == "patch_exec_only":
+        patch_exec_runtime_arn = _prompt_optional_runtime_arn("Patch Execution runtime ARN", os.environ.get("PATCH_EXECUTION_ARN") or DEFAULT_PATCH_EXECUTION_ARN)
+        payload["patch_execution_runtime_arn"] = _require_runtime_arn(
+            patch_exec_runtime_arn,
+            "Patch Execution runtime ARN",
+            PATCH_EXECUTION_RUNTIME_ARN_ENV_KEYS,
+        )
+
+        payload["patch_final_result"] = _prompt_json_file("patch_final_result", "patch_final_result", required=True)
+        payload["prompt"] = _prompt_with_default("패치 실행 프롬프트", "보안 패치 분석 및 자동 실행")
+
     elif mode == "test":
         stop_stage = _choose_stop_stage()
         payload["stop_stage"] = stop_stage
+        if stop_stage == "vuln":
+            cve_ids = _prompt_cve_ids(cve_default)
+            if cve_ids:
+                payload["cve_ids"] = cve_ids
 
         if stop_stage in {"patch_execution"}:
             patch_exec_runtime_arn = _prompt_optional_runtime_arn("Patch Execution runtime ARN", os.environ.get("PATCH_EXECUTION_ARN") or DEFAULT_PATCH_EXECUTION_ARN)
-            if patch_exec_runtime_arn:
-                payload["patch_execution_runtime_arn"] = patch_exec_runtime_arn
+            payload["patch_execution_runtime_arn"] = _require_runtime_arn(
+                patch_exec_runtime_arn,
+                "Patch Execution runtime ARN",
+                PATCH_EXECUTION_RUNTIME_ARN_ENV_KEYS,
+            )
 
         if stop_stage in {"patch_pre", "patch_followup", "patch_final"}:
             patch_runtime_arn = _prompt_optional_runtime_arn("Patch runtime ARN", os.environ.get("PATCH_IMPACT_ARN") or DEFAULT_PATCH_IMPACT_ARN)
-            if patch_runtime_arn:
-                payload["patch_impact_runtime_arn"] = patch_runtime_arn
+            payload["patch_impact_runtime_arn"] = _require_runtime_arn(
+                patch_runtime_arn,
+                "Patch runtime ARN",
+                PATCH_IMPACT_RUNTIME_ARN_ENV_KEYS,
+            )
+        if stop_stage in {"patch_followup", "patch_final"}:
+            infra_matching_runtime_arn = _prompt_optional_runtime_arn(
+                "Infra Matching runtime ARN",
+                DEFAULT_INFRA_MATCHING_ARN,
+            )
+            payload["infra_matching_runtime_arn"] = _require_runtime_arn(
+                infra_matching_runtime_arn,
+                "Infra Matching runtime ARN",
+                INFRA_MATCHING_RUNTIME_ARN_ENV_KEYS,
+            )
         test_inputs: dict[str, Any] = {}
         if stop_stage == "asset":
             test_inputs["asset_matching_payload"] = _prompt_json_file("asset_matching_payload", "asset_matching_payload", required=True)
@@ -565,6 +661,84 @@ def _save_patch_to_asset_conversation_log(run_tag: str, followup_stage: dict[str
         _write_json(run_dir / f"{request_id}.json", conversation)
 
 
+def _normalize_risk_to_asset_log(risk_stage: dict[str, Any], run_tag: str) -> dict[str, Any]:
+    queries = risk_stage.get("swarm_queries") if isinstance(risk_stage.get("swarm_queries"), list) else []
+    conversations: list[dict[str, Any]] = []
+
+    for index, item in enumerate(queries, start=1):
+        if not isinstance(item, dict):
+            continue
+        instance_id = str(item.get("instance_id") or item.get("asset_id") or "").strip()
+        question = str(item.get("question") or "").strip()
+        answer = str(item.get("answer") or "").strip()
+        confidence = str(item.get("confidence") or "").strip()
+        error = str(item.get("error") or "").strip()
+        if not (instance_id or question or answer or error):
+            continue
+
+        request_id = (
+            str(item.get("request_id") or "").strip()
+            or "__".join(part for part in (instance_id, f"q{index:02d}") if part)
+            or f"risk-query-{uuid.uuid4().hex[:8]}"
+        )
+        transcript = []
+        if question:
+            transcript.append(
+                {
+                    "turn": 1,
+                    "speaker": "risk_evaluation_agent",
+                    "question": question,
+                }
+            )
+        if answer or error:
+            transcript.append(
+                {
+                    "turn": 2,
+                    "speaker": "asset_matching_agent",
+                    "answer": answer or None,
+                    "error": error or None,
+                    "confidence": confidence or None,
+                }
+            )
+
+        conversations.append(
+            {
+                "request_id": request_id,
+                "instance_id": instance_id,
+                "source_agent": "risk_evaluation_agent",
+                "target_agent": "asset_matching_agent",
+                "question": question,
+                "answer": answer,
+                "confidence": confidence,
+                "error": error,
+                "transcript": transcript,
+            }
+        )
+
+    return {
+        "run_tag": run_tag,
+        "generated_at": risk_stage.get("generated_at"),
+        "query_count": len(conversations),
+        "conversations": conversations,
+    }
+
+
+def _save_risk_to_asset_conversation_log(run_tag: str, risk_stage: dict[str, Any]) -> None:
+    RISK_TO_ASSET_LOG_ROOT.mkdir(parents=True, exist_ok=True)
+    run_dir = RISK_TO_ASSET_LOG_ROOT / run_tag
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    normalized_log = _normalize_risk_to_asset_log(risk_stage, run_tag)
+    _write_json(run_dir / "conversation_log.json", normalized_log)
+    _write_json(RISK_TO_ASSET_LOG_ROOT / "latest.json", normalized_log)
+
+    for conversation in normalized_log.get("conversations", []):
+        if not isinstance(conversation, dict):
+            continue
+        request_id = str(conversation.get("request_id") or "").strip() or f"risk-query-{uuid.uuid4().hex[:8]}"
+        _write_json(run_dir / f"{request_id}.json", conversation)
+
+
 def _save_result_bundle(result: dict[str, Any], request_payload: dict[str, Any], invoke_meta: dict[str, Any]) -> dict[str, Any]:
     mode = str(result.get("mode") or request_payload.get("mode") or "unknown")
     run_tag = f"{_utc_tag()}__{_safe_slug(mode)}"
@@ -593,6 +767,8 @@ def _save_result_bundle(result: dict[str, Any], request_payload: dict[str, Any],
         _save_stage_wrapper("risk_evaluation_agent", run_tag, risk_stage)
         if "result" in risk_stage:
             _save_named_json("risk_evaluation_agent", run_tag, "risk_evaluation_result.json", risk_stage.get("result"))
+        if isinstance(risk_stage.get("swarm_queries"), list):
+            _save_risk_to_asset_conversation_log(run_tag, risk_stage)
 
     patch_pre_stage = result.get("patch_pre_stage") if isinstance(result.get("patch_pre_stage"), dict) else None
     if patch_pre_stage:
@@ -639,14 +815,17 @@ def _save_result_bundle(result: dict[str, Any], request_payload: dict[str, Any],
 
 def main() -> int:
     _load_env()
+    _refresh_runtime_defaults()
     RESULT_ROOT.mkdir(parents=True, exist_ok=True)
 
     print("\n오케스트라 런타임 실행기")
     _print_usage_guide()
-    runtime_arn = _prompt_with_default(
-        "오케스트라 런타임 ARN",
-        os.environ.get("ORCHESTRATOR_RUNTIME_ARN") or DEFAULT_ORCHESTRATOR_ARN,
-    )
+    runtime_arn = DEFAULT_ORCHESTRATOR_ARN.strip()
+    if runtime_arn:
+        print(f"오케스트라 런타임 ARN (.env): {runtime_arn}")
+    else:
+        runtime_arn = _prompt_with_default("오케스트라 런타임 ARN")
+    runtime_arn = _require_runtime_arn(runtime_arn, "오케스트라 런타임 ARN", ORCHESTRATOR_RUNTIME_ARN_ENV_KEYS)
     payload, label = _build_payload_interactively()
 
     print("\n실행 요청")
