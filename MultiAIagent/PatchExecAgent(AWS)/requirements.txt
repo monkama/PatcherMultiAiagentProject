@@ -13,3 +13,5 @@ opentelemetry-instrumentation-logging
 watchdog
 requests
 PyYAML
+docstring-parser
+jsonschema

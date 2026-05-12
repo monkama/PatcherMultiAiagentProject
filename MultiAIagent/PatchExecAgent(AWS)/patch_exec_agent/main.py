@@ -35,7 +35,7 @@ def run_ssm_and_wait(instance_id, commands):
 
 # [진행 상황 알림 함수]
 def send_progress_message(message):
-    url = "https://hooks.slack.com/services/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"
+    url = "https://hooks.slack.com/services/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"
     try:
         requests.post(url, json={"text": message}, timeout=5)
     except:
@@ -91,8 +91,8 @@ agent = Agent(model="anthropic.claude-3-5-sonnet-20240620-v1:0", system_prompt=S
 def execute_patch_logic(payload: dict) -> str:
     try:
 
-        #send_progress_message(f"🕵️ *[디버그 CCTV]* 들어온 데이터 내용:\n```{str(payload)[:1500]}```")
-        # 1. 초기값 설정
+        #send_progress_message(f"🕵️ *[디버그 CCTV]* \n- Type: {type(payload)}\n- Content: {str(payload)[:1000]}")
+        
         user_prompt = "보안 패치 분석 및 실행 계획을 수립하라."
         impact_data = payload.get("impact_data", payload) if isinstance(payload, dict) else {}
         is_approval_run = False
@@ -107,12 +107,19 @@ def execute_patch_logic(payload: dict) -> str:
         if "[🚨 수동 승인 완료]" in incoming_prompt:
             is_approval_run = True
             
-            # 한글 문장 속에서 정규식으로 CVE ID와 인스턴스 ID만 쏙 빼오기
-            cve_match = re.search(r'(CVE-\d{4}-\d+)', incoming_prompt)
-            cve_id = cve_match.group(1) if cve_match else "Unknown"
-            
-            inst_match = re.search(r'대상 인스턴스 ID:\s*\[([^\]]+)\]', incoming_prompt)
-            inst_str = inst_match.group(1).replace(" ", "") if inst_match else ""
+            try:
+                cve_match = re.search(r'(CVE-\d{4}-\d+)', incoming_prompt)
+                cve_id = cve_match.group(1) if cve_match else "Unknown"
+                
+                inst_match = re.search(r'대상 인스턴스 ID:\s*\[([^\]]+)\]', incoming_prompt)
+                if inst_match:
+                    inst_str = inst_match.group(1).replace(" ", "")
+                else:
+                    # 매칭 실패 시 impact_data에서 직접 가져오는 백업 로직 작동
+                    inst_list = impact_data.get("approved_instances", [])
+                    inst_str = ",".join(inst_list) if inst_list else ""
+            except Exception:
+                cve_id, inst_str = "Unknown", "" # 어떤 경우에도 죽지 않음
 
             # 에이전트가 딴소리 못하게 강력한 족쇄 프롬프트 장착
             user_prompt = f"관리자가 {cve_id}를 승인함. 대상: {inst_str}. 너의 출력 JSON에서 이 ID들을 무조건 'auto_patch_instances'로 옮기고, 무슨 일이 있어도 반드시 '{inst_str}'에 대한 bash 실행 스크립트를 'patch_executions' 배열에 생성하라."
@@ -133,7 +140,12 @@ def execute_patch_logic(payload: dict) -> str:
         mission = build_agent_mission(user_prompt, "", impact_data)
         resp = agent(mission)
         
-        text = "".join([b.get('text', '') for b in resp.message.get('content', []) if isinstance(b, dict)]) if hasattr(resp, 'message') else str(resp)
+        if hasattr(resp, 'message') and hasattr(resp.message, 'get'):
+            content = resp.message.get('content', [])
+            text = "".join([b.get('text', '') for b in content if isinstance(b, dict)])
+        else:
+            text = str(resp)
+
         match = re.search(r"```json\s*(\{.*?\})\s*```", text, re.DOTALL)
         if not match: return json.dumps({"status": "ERROR"})
         plan = json.loads(match.group(1))
@@ -173,10 +185,12 @@ def execute_patch_logic(payload: dict) -> str:
                 
                 send_progress_message(msg)
 
-            send_progress_message("🏁 *모든 패치가 완료되었습니다.*")
+            send_progress_message("🏁 *패치 에이전트 동작이 완료되었습니다.*")
 
         return json.dumps({"status": "SUCCESS"})
 
     except Exception as e:
-        print(traceback.format_exc())
+        error_msg = traceback.format_exc()
+        # 500 에러로 입 닫는 대신 Slack에 "자백"하게 만듦
+        send_progress_message(f"🚨 *[치명적 오류 발생]* 에이전트 내부 로직 실패:\n```{error_msg}```")
         return json.dumps({"status": "FAILED", "error": str(e)})
