@@ -96,9 +96,10 @@ vuln_collector -> asset_matching -> risk_evaluation -> patch_impact
 ┌─────────────────────────────────────────┐
 │         patch_impact_agent              │
 │                                         │
-│  1. risk + infra + operational 종합     │
-│  2. 부족한 기술 사실만 asset에 질문      │
-│  3. 최종 patch strategy 결과 생성       │
+│  1. risk를 시작점으로 기본 patch 전략 수립│
+│  2. infra + operational로 필드 직접 채움 │
+│  3. 부족한 direct fact만 asset에 질문    │
+│  4. 최종 patch strategy 결과 생성       │
 │                                         │
 │  반환: patch_strategy_result            │
 └─────────────────────────────────────────┘
@@ -117,11 +118,35 @@ vuln_collector -> asset_matching -> risk_evaluation -> patch_impact
 
 - `raw_result`: vuln 단계의 원본 취약점 수집 결과입니다.
 - `risk_assessment_payload`: risk 단계가 바로 읽을 수 있게 정리한 취약점 payload입니다.
-- `operational_payload`: patch 단계가 운영 영향도를 판단할 때 쓰는 payload입니다.
+- `operational_payload`: patch 단계가 정식 패치, 임시 완화, 검증 항목을 판단할 때 참고하는 patch 전략 힌트 payload입니다.
 - `asset_matching_payload`: asset 단계가 어떤 자산을 볼지 판단할 때 쓰는 기준 payload입니다.
 - `infra_context`: 실제 인프라, 인스턴스, 소프트웨어, 네트워크 정보를 모아둔 컨텍스트입니다.
 - `risk_result`: risk 단계가 계산한 위험도 평가 결과입니다.
 - `patch_strategy_result`: patch 단계의 최종 판단 결과입니다.
+
+### 에이전트별 역할과 전달 데이터
+
+현재 기준으로 각 에이전트는 아래처럼 역할이 나뉩니다.
+
+| 에이전트 | 핵심 역할 | 주로 받는 데이터 | 주로 넘기는 데이터 |
+| --- | --- | --- | --- |
+| `vuln_collector_agent` | 취약점 원본 수집 + 후속 단계용 payload 생성 | `stack_name`, `region`, 외부 취약점 데이터셋 | `risk_assessment_payload`, `operational_impact_payload`, `asset_matching_payload` |
+| `infra_matching_agent` | 자산/인프라 수집, 소프트웨어/설정/네트워크 사실 확인 | `stack_name`, `asset_matching_payload`, 개별 `question` + `asset_info` | `infra_context`, direct fact 응답 |
+| `risk_evaluation_agent` | 취약점과 자산 컨텍스트를 합쳐 위험도 계산 | `risk_assessment_payload`, `infra_context` | `risk_result` |
+| `patch_impact_agent` | 위험도 기반 patch 전략 판단, 부족한 direct fact만 asset에 질문 | `risk_result`, `infra_context`, `operational_payload`, 기존 asset fact 응답 | `patch_strategy_result`, `PatchToAsset` 대화 로그 |
+| `patch_exec_agent` | 선택된 조치의 실제 실행 | `patch_strategy_result` 또는 patch execution payload | 실행 결과, 검증 결과 |
+
+Patch 단계에서 특히 중요한 전달 관계는 아래처럼 이해하면 됩니다.
+
+- `risk_result`
+  patch 전략의 시작점입니다. 위험도가 높을수록 `apply_patch_now` 또는 `apply_mitigation_now` 쪽으로 기울 수 있습니다.
+- `infra_context`
+  현재 자산의 설치 소프트웨어, 네트워크 노출, 실행 상태, 설정 흔적 같은 직접 사실의 기본 근거입니다.
+- `operational_payload`
+  정식 패치 방법, 가능한 완화책, validation 체크리스트를 주는 참고 payload입니다.
+- `PatchToAsset` direct fact query
+  위 3개만으로 특정 필드를 채우기 부족할 때만 patch가 asset에 질문합니다.
+  이 질문은 운영 정책이 아니라 직접 관측 가능한 기술 사실 확인에만 사용합니다.
 
 ## 폴더 구조
 
@@ -204,9 +229,9 @@ MultiAIagent/
 
 현재 patch는 `patch_actions.py` 한 파일 안에서 아래를 모두 처리합니다.
 
-- 4개 입력 자료(`risk_result`, `infra_context`, `operational_payload`, 기존 asset fact trace`)를 직접 읽음
-- 최종 출력 스키마를 채우려 함
-- 부족한 필드가 있으면 `query_asset_fact` tool로 asset runtime에 직접 기술 사실 질문
+- `risk_result`, `infra_context`, `operational_payload`를 직접 읽음
+- 최종 출력 스키마의 각 필드를 직접 채우려 함
+- 기존 자료만으로 부족한 필드가 있으면 `query_asset_fact` tool로 asset runtime에 직접 기술 사실 질문
 - 응답을 반영해 최종 `patch_strategy_result` 생성
 
 즉 지금 실제 "에이전트 간 대화"에 제일 가까운 구간은 `patch -> asset` 직접 사실 확인입니다.
@@ -502,14 +527,25 @@ Conversationlog/PatchToAsset/
 
 주요 필드 예시:
 
-- `request_id`
-- `cve_id`
-- `instance_id`
-- `source_agent`
-- `target_agent`
-- `question_bundle`
-- `transcript`
-- `final_answer`
+- 최상위:
+  - `run_tag`
+  - `generated_at`
+  - `response_count`
+  - `conversations`
+- `conversations[]` 내부:
+  - `request_id`
+  - `cve_id`
+  - `instance_id`
+  - `source_agent`
+  - `target_agent`
+  - `transcript`
+  - `final_answer`
+
+중요:
+
+- 지금 patch -> asset 대화는 예전처럼 `question_bundle` 중심이 아니라,
+  실제 direct fact 질문과 그 응답을 `transcript`에 남기는 구조입니다.
+- 즉 transcript를 보면 patch가 어떤 필드를 채우기 위해 어떤 direct technical question을 보냈는지 확인할 수 있습니다.
 
 ## `hyungjun` 버전과 비교
 
