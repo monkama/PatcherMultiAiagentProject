@@ -3,1112 +3,897 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any
+
+from pydantic import BaseModel, Field
 
 try:
-    from patch_runtime.bedrock_json import call_bedrock_text
-except ModuleNotFoundError:  # local execution from this folder
-    from bedrock_json import call_bedrock_text  # type: ignore
+    from strands import Agent, tool
+except Exception:  # noqa: BLE001
+    Agent = None
+
+    def tool(func):  # type: ignore[no-redef]
+        return func
 
 
-AGENT_ROOT = Path(__file__).resolve().parent
-RUNTIME_ROOT = Path(os.environ.get("MULTIAI_RUNTIME_ROOT") or AGENT_ROOT.parent.parent)
-OUTPUT_RESULT_DIR = RUNTIME_ROOT / "OutputResult"
-RESULT_DIR = OUTPUT_RESULT_DIR / "PatchImAgent"
-STAGE1_RESULT_DIR = RESULT_DIR / "stage1_prejudge"
-STAGE2_RESULT_DIR = RESULT_DIR / "stage2_followup"
-STAGE3_RESULT_DIR = RESULT_DIR / "stage3_final"
-
-DEFAULT_RISK_PATH = OUTPUT_RESULT_DIR / "RiskevalAgent" / "risk_evaluation_result.json"
-DEFAULT_INFRA_PATH = OUTPUT_RESULT_DIR / "AssetAgent" / "infra_context.json"
-DEFAULT_OPERATIONAL_PATH = OUTPUT_RESULT_DIR / "VulAgent" / "operational_impact_payloads.json"
-PATCH_IMPACT_RESULT_PATH = STAGE1_RESULT_DIR / "patch_impact_prejudge_result.json"
-ADDITIONAL_ASSET_REQUEST_PATH = STAGE2_RESULT_DIR / "additional_asset_request.json"
-DEFAULT_FOLLOWUP_CONTEXT_PATH = OUTPUT_RESULT_DIR / "SwarmAgent" / "additional_asset_response.json"
-FINAL_RESULT_PATH = STAGE3_RESULT_DIR / "patch_impact_final_result.json"
-
-DEFAULT_BEDROCK_MODEL = (
+DEFAULT_REGION = os.environ.get("AWS_REGION") or os.environ.get("DEFAULT_REGION") or "ap-northeast-2"
+DEFAULT_MODEL_ID = (
     os.environ.get("PATCH_IMPACT_BEDROCK_MODEL")
     or os.environ.get("BEDROCK_MODEL_ID")
     or "global.anthropic.claude-haiku-4-5-20251001-v1:0"
 )
-MAX_RETRIES = 3
-RETRY_DELAY = 5
+DEFAULT_AGENTCORE_READ_TIMEOUT = int(os.environ.get("AGENTCORE_READ_TIMEOUT", "900"))
+DEFAULT_AGENTCORE_CONNECT_TIMEOUT = int(os.environ.get("AGENTCORE_CONNECT_TIMEOUT", "10"))
 
-JSONDict = dict[str, Any]
-QUESTION_TYPES = {
-    "dependency_check",
-    "shaded_copy_check",
-    "config_compatibility",
-    "restart_requirement",
-    "rollback_check",
-    "deployment_binding",
-    "patch_followup",
+MAX_FOLLOWUPS_PER_RECORD = int(os.environ.get("PATCH_MAX_FOLLOWUPS_PER_RECORD", "8"))
+MAX_RECORD_WALL_TIME_SECONDS = int(os.environ.get("PATCH_MAX_RECORD_WALL_TIME_SECONDS", "240"))
+MAX_TOTAL_WALL_TIME_SECONDS = int(os.environ.get("PATCH_MAX_TOTAL_WALL_TIME_SECONDS", "900"))
+
+ALLOWED_RISK_LEVELS = {"critical", "high", "medium", "low"}
+ALLOWED_CHANGE_SURFACES = {
+    "os_package",
+    "app_dependency",
+    "binary_artifact",
+    "container_image",
+    "configuration",
+    "source_code",
+    "unknown",
 }
-IMPACT_VALUES = {"none", "low", "medium", "high", "unknown"}
-DECISION_VALUES = {"patch_now", "patch_planned", "mitigate_then_patch", "manual_review", "no_action"}
-SEVERITY_VALUES = {"critical", "high", "medium", "low", "unknown"}
+ALLOWED_DEPLOYMENT_REQUIREMENTS = {"none", "service_restart", "redeploy", "host_reboot", "unknown"}
+ALLOWED_PATCH_FEASIBLE = {"yes", "no", "unknown"}
+ALLOWED_MITIGATION_AVAILABLE = {"yes", "no", "unknown"}
+ALLOWED_SELECTED_ACTIONS = {
+    "apply_patch_now",
+    "apply_patch_planned",
+    "apply_mitigation_now",
+    "human_review",
+}
+ALLOWED_CONFIDENCE = {"high", "medium", "low"}
+
+_CLIENT_CACHE: dict[tuple[str, str], Any] = {}
+_RUNTIME_STATE: dict[str, Any] = {
+    "started_at": 0.0,
+    "record_started_at": {},
+    "record_query_count": {},
+    "responses": [],
+    "asset_index": {},
+    "allow_followup": True,
+    "runtime_arn": "",
+    "region": DEFAULT_REGION,
+}
+
+
+class PatchStrategyRecord(BaseModel):
+    asset_id: str
+    cve_id: str
+    risk_level: str
+    affected_component: str
+    current_version: str
+    target_version: str
+    change_surface: str
+    deployment_requirement: str
+    patch_feasible: str
+    mitigation_available: str
+    mitigation_summary: str
+    selected_action: str
+    decision: str
+    confidence: str
+    reason_summary: str
+    validation_checks: list[str] = Field(default_factory=list)
+    remaining_unknowns: list[str] = Field(default_factory=list)
+
+
+class PatchStrategyResult(BaseModel):
+    records: list[PatchStrategyRecord] = Field(default_factory=list)
 
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _resolve_path(path_value: Optional[Union[str, Path]], base_dir: Path = AGENT_ROOT) -> Optional[Path]:
-    if path_value is None:
-        return None
-    path = Path(path_value)
-    if not path.is_absolute():
-        path = base_dir / path
-    return path
-
-
-def _load_json_file(path_value: Optional[Union[str, Path]], default: Any) -> Any:
-    path = _resolve_path(path_value)
-    if path is None or not path.exists():
-        return default
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return default
-
-
-def _save_json_file(path_value: Union[str, Path], data: Any) -> Path:
-    path = _resolve_path(path_value)
-    if path is None:
-        raise ValueError("저장 경로가 필요합니다.")
+def _write_json(path_like: str | Path | None, data: Any) -> None:
+    if not path_like:
+        return
+    path = Path(path_like)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    return path
 
 
-def _safe_string(value: Any, default: str = "") -> str:
-    text = str(value or "").strip()
-    return text or default
+def _agentcore_client(region: str) -> Any:
+    import boto3
+    from botocore.config import Config
+
+    key = ("bedrock-agentcore", region)
+    client = _CLIENT_CACHE.get(key)
+    if client is None:
+        client = boto3.client(
+            "bedrock-agentcore",
+            region_name=region,
+            config=Config(
+                read_timeout=DEFAULT_AGENTCORE_READ_TIMEOUT,
+                connect_timeout=DEFAULT_AGENTCORE_CONNECT_TIMEOUT,
+            ),
+        )
+        _CLIENT_CACHE[key] = client
+    return client
 
 
-def _safe_list(value: Any) -> list[Any]:
-    return value if isinstance(value, list) else []
+def _invoke_agentcore_runtime(runtime_arn: str, request_payload: dict[str, Any], region: str) -> dict[str, Any]:
+    from botocore.exceptions import ClientError
+
+    try:
+        response = _agentcore_client(region).invoke_agent_runtime(
+            agentRuntimeArn=runtime_arn,
+            payload=json.dumps(request_payload).encode("utf-8"),
+        )
+    except ClientError as exc:
+        raise RuntimeError(f"AgentCore 호출 실패 ({runtime_arn.split('/')[-1]}): {exc}") from exc
+
+    raw = response["response"].read()
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, str):
+            parsed = json.loads(parsed)
+        if isinstance(parsed, dict):
+            return parsed
+        return {"result": parsed}
+    except json.JSONDecodeError:
+        return {"raw": raw.decode("utf-8", errors="replace")}
 
 
-def _safe_text_list(value: Any) -> list[str]:
-    if isinstance(value, list):
-        return [str(item).strip() for item in value if str(item).strip()]
-    if isinstance(value, str) and value.strip():
-        return [value.strip()]
+def _safe_lower(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def _normalize_risk_level(value: Any) -> str:
+    normalized = _safe_lower(value)
+    return normalized if normalized in ALLOWED_RISK_LEVELS else "medium"
+
+
+def _normalize_enum(value: Any, allowed: set[str], default: str) -> str:
+    normalized = _safe_lower(value)
+    return normalized if normalized in allowed else default
+
+
+def _listify_str(items: Any) -> list[str]:
+    if isinstance(items, list):
+        return [str(item).strip() for item in items if str(item).strip()]
+    if isinstance(items, str) and items.strip():
+        return [items.strip()]
     return []
 
 
-def _normalize_impact(value: Any) -> str:
-    normalized = str(value or "").strip().lower()
-    return normalized if normalized in IMPACT_VALUES else "unknown"
+def _extract_json_text(raw_text: str) -> str:
+    text = (raw_text or "").strip()
+    if not text:
+        return text
+    if "```" in text:
+        parts = text.split("```")
+        for part in parts:
+            cleaned = part.strip()
+            if cleaned.startswith("json"):
+                cleaned = cleaned[4:].strip()
+            if cleaned.startswith("{") or cleaned.startswith("["):
+                return cleaned
+    match = re.search(r"(\{.*\}|\[.*\])", text, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    return text
 
 
-def _normalize_decision(value: Any) -> str:
-    normalized = str(value or "").strip().lower()
-    legacy_map = {
-        "auto_update": "patch_now",
-        "wait_for_maintenance": "patch_planned",
-        "manual_approval": "manual_review",
-    }
-    normalized = legacy_map.get(normalized, normalized)
-    return normalized if normalized in DECISION_VALUES else "manual_review"
-
-
-def _normalize_security_severity(value: Any) -> str:
-    normalized = str(value or "").strip().lower()
-    return normalized if normalized in SEVERITY_VALUES else "unknown"
-
-
-def _normalize_question_type(value: Any) -> str:
-    normalized = str(value or "").strip().lower()
-    return normalized if normalized in QUESTION_TYPES else "patch_followup"
-
-
-def _normalize_missing_key(value: Any) -> str:
-    return " ".join(str(value or "").strip().lower().split())
-
-
-def _extract_json_blob(text: str) -> Any:
-    raw = str(text or "").strip()
-    if not raw:
-        return None
-    fence_match = re.search(r"```(?:json)?\s*(.*?)```", raw, re.DOTALL)
-    if fence_match:
-        raw = fence_match.group(1).strip()
+def _extract_agent_text(result: Any) -> str:
     try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
+        content = result.message.get("content", [])
+        chunks: list[str] = []
+        for block in content:
+            if isinstance(block, dict):
+                text = block.get("text")
+                if isinstance(text, str) and text.strip():
+                    chunks.append(text.strip())
+        if chunks:
+            return "\n".join(chunks).strip()
+    except Exception:  # noqa: BLE001
         pass
-    decoder = json.JSONDecoder()
-    for idx, ch in enumerate(raw):
-        if ch not in "[{":
-            continue
-        try:
-            parsed, _ = decoder.raw_decode(raw[idx:])
-            return parsed
-        except json.JSONDecodeError:
-            continue
-    return None
+    return str(result).strip()
 
 
-def _normalize_json_like(value: Any) -> Any:
-    if isinstance(value, (dict, list)):
-        return value
-    if isinstance(value, str) and value.strip():
-        parsed = _extract_json_blob(value)
-        if parsed is not None:
-            return parsed
-    return value
-
-
-def _call_llm_json(instructions: str, payload: dict[str, Any], bedrock_model: Any = None) -> Any:
-    prompt = json.dumps(payload, ensure_ascii=False, indent=2)
-    text = call_bedrock_text(
-        instructions=instructions,
-        prompt=prompt,
-        model_name=str(bedrock_model or "").strip() or DEFAULT_BEDROCK_MODEL,
-        max_retries=MAX_RETRIES,
-        retry_delay=RETRY_DELAY,
-    )
-    parsed = _extract_json_blob(text)
-    if parsed is None:
-        raise ValueError("LLM 응답에서 JSON을 추출하지 못했습니다.")
-    return parsed
-
-
-def _coerce_risk_records(risk_result: Any) -> list[dict[str, Any]]:
+def _extract_risk_records(risk_result: Any) -> list[dict[str, Any]]:
     if isinstance(risk_result, list):
         return [item for item in risk_result if isinstance(item, dict)]
     if isinstance(risk_result, dict):
-        for key in ("records", "results", "items"):
-            value = risk_result.get(key)
-            if isinstance(value, list):
-                return [item for item in value if isinstance(item, dict)]
-        if risk_result.get("cve_id"):
-            return [risk_result]
+        if isinstance(risk_result.get("risk_report"), list):
+            return [item for item in risk_result["risk_report"] if isinstance(item, dict)]
+        if isinstance(risk_result.get("result"), list):
+            return [item for item in risk_result["result"] if isinstance(item, dict)]
+        if isinstance(risk_result.get("records"), list):
+            return [item for item in risk_result["records"] if isinstance(item, dict)]
     return []
 
 
-def _index_assets(infra_context: Any) -> dict[str, dict[str, Any]]:
-    if not isinstance(infra_context, dict):
-        return {}
-    assets = infra_context.get("assets")
-    if not isinstance(assets, list):
-        return {}
-    indexed: dict[str, dict[str, Any]] = {}
-    for asset in assets:
-        if not isinstance(asset, dict):
-            continue
-        asset_id = _safe_string(asset.get("asset_id"))
-        if asset_id:
-            indexed[asset_id] = asset
-    return indexed
-
-
-def _index_operational_records(operational_payload: Any) -> dict[str, dict[str, Any]]:
-    records: list[Any]
-    if isinstance(operational_payload, dict):
-        records = _safe_list(operational_payload.get("records"))
-    elif isinstance(operational_payload, list):
-        records = operational_payload
-    else:
-        records = []
-    indexed: dict[str, dict[str, Any]] = {}
-    for record in records:
-        if isinstance(record, dict):
-            cve_id = _safe_string(record.get("cve_id"))
-            if cve_id:
-                indexed[cve_id] = record
-    return indexed
+def _extract_operational_records(operational_payload: Any) -> list[dict[str, Any]]:
+    if isinstance(operational_payload, dict) and isinstance(operational_payload.get("records"), list):
+        return [item for item in operational_payload["records"] if isinstance(item, dict)]
+    if isinstance(operational_payload, list):
+        return [item for item in operational_payload if isinstance(item, dict)]
+    return []
 
 
 def _compact_asset(asset: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(asset, dict):
         return {}
-    keep = (
-        "asset_id",
-        "hostname",
-        "tier",
-        "availability_zone",
-        "private_ip",
-        "public_ip",
-        "metadata",
-        "network_context",
-        "security_context",
-        "os_info",
-        "installed_software",
-        "running_processes",
-        "services",
-        "config_findings",
-        "file_findings",
-        "container_images",
-        "deployment_context",
-        "rollback_context",
-    )
-    return {key: asset[key] for key in keep if asset.get(key) not in (None, "", [], {})}
+    return {
+        "asset_id": asset.get("asset_id") or asset.get("instance_id"),
+        "tier": asset.get("tier"),
+        "metadata": asset.get("metadata"),
+        "network_context": asset.get("network_context"),
+        "security_context": asset.get("security_context"),
+        "installed_software": asset.get("installed_software"),
+        "services": asset.get("services"),
+        "config_findings": asset.get("config_findings"),
+        "file_findings": asset.get("file_findings"),
+        "container_images": asset.get("container_images"),
+        "deployment_context": asset.get("deployment_context"),
+    }
 
 
 def _compact_operational(record: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(record, dict):
         return {}
-    keep = (
-        "cve_id",
-        "title",
-        "primary_remediation",
-        "operational_risk",
-        "dependency_checks",
-        "fallback_mitigations",
-        "rollout_guidance",
-        "validation_checks",
-    )
-    compact = {key: record[key] for key in keep if record.get(key) not in (None, "", [], {})}
-    # 구 구조 호환
-    if "primary_remediation" not in compact and record.get("mitigation_summaries"):
-        compact["primary_remediation"] = "; ".join(_safe_text_list(record.get("mitigation_summaries")))
-    if "operational_risk" not in compact and record.get("operational_impacts"):
-        compact["operational_risk"] = "; ".join(_safe_text_list(record.get("operational_impacts")))
-    if "rollout_guidance" not in compact and record.get("rollout_considerations"):
-        compact["rollout_guidance"] = "; ".join(_safe_text_list(record.get("rollout_considerations")))
-    if "validation_checks" not in compact and record.get("validation_focus"):
-        compact["validation_checks"] = _safe_text_list(record.get("validation_focus"))
-    return compact
+    return {
+        "cve_id": record.get("cve_id"),
+        "title": record.get("title"),
+        "primary_remediation": record.get("primary_remediation"),
+        "dependency_checks": record.get("dependency_checks"),
+        "fallback_mitigations": record.get("fallback_mitigations"),
+        "validation_checks": record.get("validation_checks"),
+        "operational_risk": record.get("operational_risk"),
+        "rollout_guidance": record.get("rollout_guidance"),
+    }
 
 
-def _compact_risk_reference(impacted: dict[str, Any]) -> dict[str, Any]:
-    if not isinstance(impacted, dict):
-        return {}
-    keep = (
-        "instance_id",
-        "asset_id",
-        "base_cvss",
-        "calculated_risk",
-        "exposure_level",
-        "mitigations_found",
-        "risk_adjustment_reason",
-    )
-    return {key: impacted[key] for key in keep if impacted.get(key) not in (None, "", [], {})}
+def _summarize_prior_asset_findings(value: Any) -> list[dict[str, Any]]:
+    responses: list[dict[str, Any]] = []
+    if not isinstance(value, dict):
+        return responses
+    source = value.get("responses")
+    if not isinstance(source, list):
+        return responses
+    for item in source:
+        if not isinstance(item, dict):
+            continue
+        if isinstance(item.get("answers"), list):
+            for answer in item["answers"]:
+                if not isinstance(answer, dict):
+                    continue
+                responses.append(
+                    {
+                        "asset_id": item.get("asset_id") or item.get("instance_id"),
+                        "cve_id": item.get("cve_id"),
+                        "question": answer.get("question"),
+                        "answer": answer.get("answer"),
+                        "confidence": answer.get("confidence"),
+                        "evidence": answer.get("evidence"),
+                    }
+                )
+            continue
+        responses.append(
+            {
+                "asset_id": item.get("asset_id"),
+                "cve_id": item.get("cve_id"),
+                "question": item.get("question"),
+                "answer": item.get("answer"),
+                "confidence": item.get("confidence"),
+                "evidence": item.get("evidence"),
+            }
+        )
+    return responses
 
 
-def _build_stage1_dataset(
-    risk_result: Any,
-    infra_context: Any,
-    operational_payload: Any,
-) -> dict[str, Any]:
-    risk_records = _coerce_risk_records(risk_result)
-    assets_by_id = _index_assets(infra_context)
-    operational_by_cve = _index_operational_records(operational_payload)
+def _build_strategy_context(payload: dict[str, Any]) -> dict[str, Any]:
+    risk_result = payload.get("risk_result") or payload.get("risk_evaluation_result") or {}
+    infra_context = payload.get("infra_context") or {}
+    operational_payload = payload.get("operational_payload") or payload.get("operational_impact_payloads") or {}
+    prior_asset_findings = payload.get("additional_asset_response") or payload.get("asset_fact_trace") or {}
 
-    stage_records: list[dict[str, Any]] = []
+    risk_records = _extract_risk_records(risk_result)
+    operational_records = _extract_operational_records(operational_payload)
+    assets = infra_context.get("assets") if isinstance(infra_context, dict) else []
+    asset_index = {
+        str(asset.get("asset_id") or asset.get("instance_id")): asset
+        for asset in assets
+        if isinstance(asset, dict) and (asset.get("asset_id") or asset.get("instance_id"))
+    }
+    operational_by_cve = {
+        str(record.get("cve_id")): record
+        for record in operational_records
+        if isinstance(record, dict) and record.get("cve_id")
+    }
+    prior_findings = _summarize_prior_asset_findings(prior_asset_findings)
+
+    records: list[dict[str, Any]] = []
     for risk_record in risk_records:
-        cve_id = _safe_string(risk_record.get("cve_id"))
-        op_record = operational_by_cve.get(cve_id, {})
-        impacted_assets = _safe_list(risk_record.get("impacted_assets"))
-        stage_assets: list[dict[str, Any]] = []
+        cve_id = str(risk_record.get("cve_id") or "").strip()
+        if not cve_id:
+            continue
+        title = str(risk_record.get("title") or "").strip()
+        operational_record = operational_by_cve.get(cve_id, {})
+        impacted_assets = risk_record.get("impacted_assets") if isinstance(risk_record.get("impacted_assets"), list) else []
         for impacted in impacted_assets:
             if not isinstance(impacted, dict):
                 continue
-            instance_id = _safe_string(impacted.get("instance_id") or impacted.get("asset_id"))
-            asset = assets_by_id.get(instance_id, {})
-            stage_assets.append({
-                "instance_id": instance_id,
-                "risk_reference": _compact_risk_reference(impacted),
-                "infra_context": _compact_asset(asset),
-            })
-        stage_records.append({
-            "cve_id": cve_id,
-            "title": _safe_string(op_record.get("title") or risk_record.get("title")),
-            "operational_context": _compact_operational(op_record),
-            "risk_record": {
-                "cve_id": cve_id,
-                "title": _safe_string(risk_record.get("title")),
-                "impacted_assets": stage_assets,
-            },
-        })
+            asset_id = str(impacted.get("instance_id") or impacted.get("asset_id") or "").strip()
+            if not asset_id:
+                continue
+            related_findings = [
+                finding
+                for finding in prior_findings
+                if str(finding.get("asset_id") or "").strip() == asset_id
+                and str(finding.get("cve_id") or "").strip() == cve_id
+            ]
+            records.append(
+                {
+                    "asset_id": asset_id,
+                    "cve_id": cve_id,
+                    "title": title,
+                    "risk_level": _normalize_risk_level(impacted.get("calculated_risk")),
+                    "risk_reference": {
+                        "base_cvss": impacted.get("base_cvss"),
+                        "calculated_risk": impacted.get("calculated_risk"),
+                        "exposure_level": impacted.get("exposure_level"),
+                        "mitigations_found": impacted.get("mitigations_found"),
+                        "risk_adjustment_reason": impacted.get("risk_adjustment_reason"),
+                        "remediation": impacted.get("remediation"),
+                    },
+                    "infra_asset": _compact_asset(asset_index.get(asset_id, {})),
+                    "operational_context": _compact_operational(operational_record),
+                    "prior_asset_findings": related_findings,
+                }
+            )
 
     return {
-        "input_contract": {
-            "purpose": "자산별 패치 관련 1차 정보 정리와 follow-up 질문 생성",
-            "output_schema": "compressed_prejudge.v1",
-        },
-        "risk_records": stage_records,
+        "generated_at": _utc_now(),
+        "planner_intent": "risk-driven patch strategy planner",
+        "allow_followup": bool(payload.get("allow_followup", True)),
+        "record_count": len(records),
+        "records": records,
     }
 
 
-def _stage1_system_prompt() -> str:
-    return """당신은 patch_impact_prejudge AI입니다.
+def _record_key(asset_id: str, cve_id: str) -> str:
+    return f"{asset_id}::{cve_id}"
 
-목표:
-위험도 평가 결과, infra context, 운영 영향 payload를 종합해 자산별 패치 관련 1차 정보 정리를 생성합니다.
-이 단계는 최종 판단이 아닙니다.
-현재 입력만으로 확인 가능한 사실을 구조화하고, 부족한 정보가 있으면 자산 수집 에이전트에게 확인할 follow-up 질문을 생성합니다.
 
-당신은 보안 위험도 자체를 재평가하지 않습니다.
-CVSS, severity, exploitability score를 새로 만들지 않습니다.
-당신은 이 단계에서 patch_impact나 최종 조치 방향을 결정하지 않습니다.
-당신의 역할은 패치 운영 영향 판단에 필요한 사실, 운영 문맥, 부족한 정보, 확인 질문을 구조화하는 것입니다.
+def _followup_budget_blocked(asset_id: str, cve_id: str) -> str | None:
+    if not _RUNTIME_STATE.get("allow_followup", True):
+        return "followup_disabled"
 
-반드시 JSON object 하나만 반환하세요.
-마크다운, 설명문, 코드블록을 출력하지 마세요.
+    now = time.time()
+    total_started_at = float(_RUNTIME_STATE.get("started_at") or now)
+    if now - total_started_at > MAX_TOTAL_WALL_TIME_SECONDS:
+        return "total_time_budget_exceeded"
 
-출력 스키마:
+    key = _record_key(asset_id, cve_id)
+    record_started_at = _RUNTIME_STATE["record_started_at"].setdefault(key, now)
+    if now - float(record_started_at) > MAX_RECORD_WALL_TIME_SECONDS:
+        return "record_time_budget_exceeded"
+
+    count = int(_RUNTIME_STATE["record_query_count"].get(key, 0))
+    if count >= MAX_FOLLOWUPS_PER_RECORD:
+        return "record_query_budget_exceeded"
+
+    return None
+
+
+@tool
+def query_asset_fact(asset_id: str, cve_id: str, question: str) -> str:
+    """자산 runtime에 직접 관측 가능한 기술 사실만 좁게 질문한다."""
+    budget_block = _followup_budget_blocked(asset_id, cve_id)
+    if budget_block:
+        response = {
+            "asset_id": asset_id,
+            "cve_id": cve_id,
+            "question": question,
+            "status": "skipped",
+            "error": budget_block,
+            "answer": "",
+            "confidence": "none",
+            "evidence": [],
+        }
+        _RUNTIME_STATE["responses"].append(response)
+        return json.dumps(response, ensure_ascii=False)
+
+    asset_info = _RUNTIME_STATE.get("asset_index", {}).get(asset_id)
+    runtime_arn = str(_RUNTIME_STATE.get("runtime_arn") or "").strip()
+    region = str(_RUNTIME_STATE.get("region") or DEFAULT_REGION)
+    if not asset_info or not runtime_arn:
+        response = {
+            "asset_id": asset_id,
+            "cve_id": cve_id,
+            "question": question,
+            "status": "error",
+            "error": "asset_info_or_runtime_arn_missing",
+            "answer": "",
+            "confidence": "none",
+            "evidence": [],
+        }
+        _RUNTIME_STATE["responses"].append(response)
+        return json.dumps(response, ensure_ascii=False)
+
+    _RUNTIME_STATE["record_query_count"][_record_key(asset_id, cve_id)] = (
+        int(_RUNTIME_STATE["record_query_count"].get(_record_key(asset_id, cve_id), 0)) + 1
+    )
+
+    try:
+        body = _invoke_agentcore_runtime(
+            runtime_arn,
+            {
+                "mode": "query",
+                "region": region,
+                "instance_id": asset_id,
+                "asset_info": asset_info,
+                "question": question,
+            },
+            region,
+        )
+        if "error" in body:
+            response = {
+                "asset_id": asset_id,
+                "cve_id": cve_id,
+                "question": question,
+                "status": "error",
+                "error": str(body["error"]),
+                "answer": "",
+                "confidence": "none",
+                "evidence": [],
+            }
+        else:
+            response = {
+                "asset_id": asset_id,
+                "cve_id": cve_id,
+                "question": question,
+                "status": "ok",
+                "answer": str(body.get("answer") or "").strip(),
+                "confidence": str(body.get("confidence") or "").strip(),
+                "evidence": body.get("evidence") if isinstance(body.get("evidence"), list) else [],
+            }
+    except Exception as exc:  # noqa: BLE001
+        response = {
+            "asset_id": asset_id,
+            "cve_id": cve_id,
+            "question": question,
+            "status": "error",
+            "error": f"{type(exc).__name__}: {exc}",
+            "answer": "",
+            "confidence": "none",
+            "evidence": [],
+        }
+
+    _RUNTIME_STATE["responses"].append(response)
+    return json.dumps(response, ensure_ascii=False)
+
+
+def _planner_system_prompt() -> str:
+    return """
+당신은 누구인가:
+- 당신은 패치 전문가입니다. 즉, 주어진 cve 취약점을 대상 자산에 패치할 때, 단순히 기술적 패치 가능 여부뿐만 아니라, 운영 환경에서의 실제 적용 가능성, 완화책 존재 여부, 그리고 최종적으로 어떤 조치를 선택할지까지 판단하는 역할입니다.
+
+Available evidence / 초기 사용 가능한 근거:
+- risk evaluation context
+- infrastructure context
+- operational impact payload context
+- prior asset fact findings if present
+
+Your task / 해야 할 일:
+- 단순히 패치 및 업그레이드만으로 안되는 상황이 있을 수도 있습니다. 코드간 의존성 및 운영 환경 제약으로 인해 패치 적용이 어려울 수 있습니다. 또한 임시 완화책이 존재할 수도 있습니다. 따라서 패치 적용 가능 여부뿐만 아니라 완화책 적용 가능 여부도 함께 판단하십시오.
+- 일단 주어진 초기 사용 가능한 근거 json 파일들을 모두 읽으세요. 그리고 각 필드에 필요한 정보를 채우기에 근거가 충분한지 판단하십시오. 각 필드에 대한 설명은 Field definitions 을 참조하시면 됩니다.
+- 각 필드의 정보를 작성하기에 기존 정보만으로 충분하지 않으면 query_asset_fact tool을 사용하여 직접 기술적 사실을 수집한 뒤, 그 응답으로 다시 해당 필드를 채우십시오.
+- query_asset_fact tool을 사용할 때는 내부적으로 자산 수집 에이전트에 아래 payload가 전달된다는 점을 이해하고 질문하십시오:
+  {
+    "mode": "query",
+    "region": "...",
+    "instance_id": "...",
+    "asset_info": {...},
+    "question": "..."
+  }
+
+
+- asset_info는 이미 수집된 자산 컨텍스트로 자동 전달됩니다. 여기에는 보통 tier, metadata, network_context, security_context, installed_software, services, config_findings, file_findings, container_images, deployment_context 등이 포함될 수 있습니다.
+- planner가 직접 작성해야 하는 값은 asset_id, cve_id, question 입니다.
+- 따라서 question은 asset_info에 이미 들어 있는 일반 문맥을 반복 설명하기보다, 그 문맥을 바탕으로 확인이 필요한 직접 관측 사실에 집중해서 작성하십시오.
+- 질문은 반드시 좁고 관측 가능 및 구체적이어야 하며, 자산 수집 에이전트가 실제 명령/설정/파일/프로세스 확인으로 답할 수 있어야 합니다.
+
+
+Output schema / 출력 스키마:
 {
   "records": [
     {
-      "cve_id": "",
-      "title": "",
-      "patch_summary": "",
-      "asset_prejudgements": [
-        {
-          "asset_id": "",
-          "asset_context": "",
-          "security_severity": "critical | high | medium | low | unknown",
-          "known_facts": [],
-          "missing_information": [],
-          "followup_questions": [
-            {
-              "id": "",
-              "type": "dependency_check | shaded_copy_check | config_compatibility | restart_requirement | rollback_check | deployment_binding | patch_followup",
-              "question": "",
-              "why_needed": "",
-              "source_missing_information": ""
-            }
-          ]
-        }
-      ]
+      "asset_id": "string",
+      "cve_id": "string",
+      "risk_level": "critical | high | medium | low",
+      "affected_component": "string",
+      "current_version": "string | unknown",
+      "target_version": "string | unknown",
+      "change_surface": "os_package | app_dependency | binary_artifact | container_image | configuration | source_code | unknown",
+      "deployment_requirement": "none | service_restart | redeploy | host_reboot | unknown",
+      "patch_feasible": "yes | no | unknown",
+      "mitigation_available": "yes | no | unknown",
+      "mitigation_summary": "string",
+      "selected_action": "apply_patch_now | apply_patch_planned | apply_mitigation_now | human_review",
+      "decision": "string",
+      "confidence": "high | medium | low",
+      "reason_summary": "string",
+      "validation_checks": [],
+      "remaining_unknowns": []
     }
   ]
 }
+Field definitions / 필드 정의
 
-필드 의미:
-- cve_id: 판단 대상 CVE ID입니다.
-- title: 취약점 제목입니다.
-- patch_summary: 해당 CVE의 정식 조치, 운영 위험, 임시 완화책, 검증 포인트를 한 문단으로 압축한 값입니다.
-- asset_prejudgements: 자산별 1차 정보 정리 목록입니다. 이 단계에서는 최종 조치 결론을 내리지 않습니다.
-- asset_id: 판단 대상 자산 ID입니다.
-- asset_context: 자산의 핵심 운영 상태를 한 문장으로 압축한 값입니다.
-- security_severity: 위험도 평가 단계가 전달한 자산별 보안 위험도 참고값입니다.
-- known_facts: 현재 입력만으로 확인 가능한 핵심 사실 목록입니다. 최종 조치 결론이 아니라 판단에 필요한 근거 요약입니다.
-- missing_information: 신뢰도 있는 최종 판단을 위해 부족한 사실 정보입니다.
-- followup_questions: 자산 수집 에이전트가 관측 가능한 사실로 답해야 하는 질문 목록입니다.
-- followup_questions[].source_missing_information: 이 질문이 주로 해결하려는 missing_information 원문입니다.
+- asset_id
+  - 의미: 대상 자산의 고유 식별자입니다.
+  - 작성 방식: 입력 자료에 있는 실제 자산 ID를 그대로 사용하십시오. 보통 EC2 인스턴스 ID입니다.
+  - 예: "i-0123456789abcdef0"
 
-입력 사용 규칙:
-1. operational_impact_payloads.records[]는 CVE별 패치 문맥입니다.
-   - patch_summary는 primary_remediation, operational_risk, fallback_mitigations, rollout_guidance, validation_checks를 조합해 만듭니다.
-   - primary_remediation이 명확하면 반드시 반영합니다.
-   - fallback_mitigations는 정식 패치를 바로 적용하지 못할 때의 임시 완화책으로만 취급합니다.
-   - dependency_checks는 missing_information과 followup_questions를 만들 때 우선 참고합니다.
-2. risk_evaluation_result[]는 자산별 보안 위험도 참고값입니다.
-   - asset_prejudgements는 impacted_assets[]를 기준으로 만듭니다.
-   - impacted_assets[].instance_id를 asset_id로 사용합니다.
-   - calculated_risk, exposure_level, risk_adjustment_reason, mitigations_found를 참고합니다.
-   - remediation은 risk 판단 결과의 조치 문장일 뿐이므로 patch 조치 판단 근거로 사용하지 마세요.
-3. infra_context.assets[]는 실제 자산 문맥입니다.
-   - impacted_assets[].instance_id와 infra_context.assets[].asset_id를 매칭합니다.
-   - asset_context는 tier, metadata, network_context, security_context, installed_software를 조합해 작성합니다.
-   - public/private 노출, listening port, root 실행 여부, 설치 제품/버전/경로는 중요하게 반영합니다.
-4. 이 단계의 역할은 최종 조치 방향을 정하는 것이 아니라, 현재까지 확인된 사실과 부족한 정보를 구조화하는 것입니다.
-   - patch_now, patch_planned, manual_review 같은 최종 decision enum을 만들지 마세요.
-   - 패치 영향도 high/low 같은 결론도 만들지 마세요.
-   - 대신 known_facts, missing_information, followup_questions를 더 정확하게 작성하세요.
+- cve_id
+  - 의미: 해당 취약점의 CVE 번호입니다.
+  - 작성 방식: 입력 자료의 CVE ID를 그대로 사용하십시오.
+  - 예: "CVE-2021-44228"
 
-known_facts 작성 기준:
-- 현재 입력에서 직접 확인되는 사실만 적습니다.
-- 보안 위험도 참고값, 자산 노출 상태, 설치 흔적, 런타임 흔적, 설정 흔적, 운영상 중요한 구조를 요약합니다.
-- 결론형 문장보다 관측 사실 위주로 씁니다.
-- 보통 2~5개 정도로 제한합니다.
+- risk_level
+  - 의미: 앞단 risk evaluation이 판단한 위험도입니다.
+  - 작성 방식: 입력 자료의 위험도를 사용하고, 임의로 새 수준을 만들지 마십시오.
+  - 허용값: critical | high | medium | low
 
-followup_questions 작성 규칙:
-- 질문은 관측 가능한 사실만 물어야 합니다.
-- 질문은 yes, no, unknown 또는 구체 값으로 답할 수 있어야 합니다.
-- 운영 판단, 위험도 판단, 승인 여부를 묻지 마세요.
-- missing_information에 항목이 하나라도 있으면, followup_questions도 원칙적으로 비어 있으면 안 됩니다.
-- followup_questions는 missing_information을 메우기 위한 질문이어야 합니다.
-- 서로 다른 missing_information 항목은 가능한 한 각각 별도 질문으로 분리하세요.
-- 원칙적으로 중요한 missing_information 항목 하나당 대응하는 followup question 하나가 있어야 합니다.
-- 입력만으로 충분히 판단 가능하면 followup_questions는 빈 배열로 둡니다.
+- affected_component
+  - 의미: 실제로 패치 또는 완화 대상이 되는 구성요소입니다.
+  - 작성 방식: 가능한 한 구체적인 컴포넌트 이름을 쓰십시오. 단순히 "application"처럼 뭉뚱그리지 마십시오.
+  - 예: "nginx", "log4j-core", "openssl"
 
-followup_questions[].type 선택 기준:
-- dependency_check: 취약 구성요소가 실제 사용 또는 연결되어 있는지 확인해야 할 때 사용합니다.
-- shaded_copy_check: 숨겨진 내장 또는 재패키징 복사본 존재 여부를 확인해야 할 때 사용합니다.
-- config_compatibility: 현재 설정과 패치/완화 조치의 충돌 가능성을 확인해야 할 때 사용합니다.
-- restart_requirement: 조치 적용에 실행 상태 변경이 필요한지 확인해야 할 때 사용합니다.
-- rollback_check: 조치 실패 시 원복 가능성을 확인해야 할 때 사용합니다.
-- deployment_binding: 자산이 운영 트래픽 또는 배포 경로와 연결되어 있는지 확인해야 할 때 사용합니다.
-- patch_followup: 위 유형에 명확히 속하지 않는 패치 관련 사실 확인에 사용합니다.
+- current_version
+  - 의미: 현재 확인된 취약 구성요소의 버전입니다.
+  - 작성 방식: 입력 자료나 추가 확인 결과로 명확할 때만 실제 버전을 쓰고, 불명확하면 "unknown"을 사용하십시오.
+  - 예: "1.20.0", "2.14.1", "unknown"
 
-압축 규칙:
-- 유지보수 시간, OS 재부팅 여부, 예상 다운타임, 데이터 손실 위험, 설정 덮어쓰기 위험, 롤백 복잡도, 순차 배포 필요 여부 같은 세부 운영 항목은 별도 키로 출력하지 않습니다.
-- 해당 정보가 판단에 중요하면 known_facts, missing_information, followup_questions 중 하나에 자연어로 압축해 포함합니다.
+- target_version
+  - 의미: 목표 패치 버전 또는 권장 버전입니다.
+  - 작성 방식: 입력 자료의 remediation 근거가 명확할 때만 채우고, 불명확하면 "unknown"을 사용하십시오.
+  - 예: "1.20.1", "2.17.1", "unknown"
 
-금지:
-- 보안 severity나 CVSS를 재평가하지 마세요.
-- 입력에 없는 유지보수 시간, 다운타임, 배포 구조를 만들지 마세요.
-- unknown을 no 또는 safe처럼 취급하지 마세요.
-- fixed version 또는 primary_remediation이 입력에 있는데 unknown으로 바꾸지 마세요.
-- 일반론만 쓰지 말고 입력 근거에 기반해 작성하세요.
+- change_surface
+  - 의미: 실제로 무엇을 바꾸는 패치인지 나타내는 분류입니다.
+  - 작성 방식: 패치가 적용되는 기술 면을 가장 잘 설명하는 값을 하나 선택하십시오.
+  - 허용값:
+    - os_package: OS 패키지 업데이트
+    - app_dependency: 애플리케이션 의존성 버전 변경
+    - binary_artifact: jar, dll, binary 파일 자체 교체
+    - container_image: 컨테이너 이미지 재빌드 또는 재배포
+    - configuration: 설정 변경 중심 조치
+    - source_code: 소스 코드 수정 필요
+    - unknown: 확정 불가
+
+- deployment_requirement
+  - 의미: 조치를 반영하려면 어느 수준의 반영 작업이 필요한지 나타냅니다.
+  - 작성 방식: 직접 근거가 있을 때만 구체값을 쓰고, 없으면 "unknown"을 사용하십시오.
+  - 허용값:
+    - none: 별도 재시작/재배포 불필요
+    - service_restart: 서비스 재시작 필요
+    - redeploy: 애플리케이션 또는 컨테이너 재배포 필요
+    - host_reboot: 호스트 재부팅 필요
+    - unknown: 확정 불가
+
+- patch_feasible
+  - 의미: 현재 증거 기준으로 정식 패치 또는 버전 업그레이드를 바로 진행할 수 있는지 여부입니다.
+  - 작성 방식: 가능 여부가 충분히 뒷받침될 때만 yes/no를 쓰고, 애매하면 unknown을 사용하십시오.
+  - 허용값:
+    - yes: 지금 정식 패치 가능
+    - no: 지금 바로 패치하기 어려움
+    - unknown: 근거 부족
+
+- mitigation_available
+  - 의미: 정식 패치 전에 위험을 낮출 수 있는 임시 완화 조치가 존재하는지 여부입니다.
+  - 작성 방식: 현실적으로 적용 가능한 완화책이 확인된 경우에만 yes를 쓰고, 없으면 no, 애매하면 unknown을 사용하십시오.
+  - 허용값:
+    - yes: 사용 가능한 완화책 있음
+    - no: 실질적 완화책 없음
+    - unknown: 확정 불가
+
+- mitigation_summary
+  - 의미: 가능한 완화 조치를 짧게 설명하는 필드입니다.
+  - 작성 방식: mitigation_available이 yes인 경우 구체적 완화 내용을 한 줄로 쓰십시오. no 또는 unknown이면 빈 문자열 또는 매우 짧은 설명을 사용할 수 있습니다.
+  - 예: "JndiLookup.class 제거 가능", "resolver 지시문 비활성화 가능"
+
+- selected_action
+  - 의미: 최종적으로 지금 선택한 조치입니다.
+  - 작성 방식: 반드시 하나만 선택하십시오. patch와 mitigation을 동시에 선택하지 마십시오.
+  - 허용값:
+    - apply_patch_now: 지금 바로 정식 패치를 적용
+    - apply_patch_planned: 정식 패치는 하되 계획된 시점에 적용
+    - apply_mitigation_now: 지금은 임시 완화 조치를 우선 적용
+    - human_review: 근거 부족 또는 불확실성 때문에 사람 검토 필요
+
+- decision
+  - 의미: selected_action을 사람이 바로 이해할 수 있는 실행 문장으로 풀어쓴 최종 결론
+  - 지금까지 나온 근거들을 바탕으로 최종 결론을 내리는 필드입니다.
+  - selected_action을 그대로 반복하지 말고, 어떤 자산에 대해 지금 무엇을 해야 하는지와 필요한 후속 방향을 함께 적으십시오.
+  - 최대한 구체적으로 적어주시면 좋습니다.
+    
+- confidence
+  - 의미: 전체 판단의 신뢰 수준입니다.
+  - 작성 방식: 핵심 근거가 충분하면 high, 일부 불확실성이 있으면 medium, 중요한 정보가 비어 있으면 low를 선택하십시오.
+  - 허용값:
+    - high: 근거 충분
+    - medium: 일부 불확실성 존재
+    - low: 핵심 정보 부족
+
+- reason_summary
+  - 의미: 최종 판단 근거를 요약하는 설명입니다.
+  - 작성 방식: 한국어로 작성하십시오. 1~3문장 정도로 간결하고, 입력 자료와 추가 확인 결과에 기반해 쓰십시오. 추측성 문장은 피하십시오.
+
+- validation_checks
+  - 의미: 선택한 조치 후 확인해야 하는 검증 항목 목록입니다.
+  - 작성 방식: 문자열 배열로 작성하고, 실제로 확인 가능한 점검 항목만 넣으십시오.
+  - 예:
+    - "nginx version 확인"
+    - "애플리케이션 재기동 후 오류 로그 확인"
+    - "취약 artifact 교체 여부 확인"
+
+- remaining_unknowns
+  - 의미: 끝까지 확정하지 못한 정보 목록입니다.
+  - 작성 방식: 짧은 문자열 배열로 작성하십시오. 최종 판단에 영향을 준 미해결 항목을 남기십시오.
+  - 예:
+    - "hidden embedded copy path"
+    - "framework compatibility"
+    - "exact target version"
+
+Selection fields / 선택형 필드 의미
+
+- risk_level
+  - critical: 매우 시급한 위험
+  - high: 시급한 위험
+  - medium: 계획 패치가 기본인 중간 수준 위험
+  - low: 상대적으로 낮은 위험
+
+- change_surface
+  - os_package: OS 패키지 업데이트로 해결
+  - app_dependency: 애플리케이션 의존성 버전 변경으로 해결
+  - binary_artifact: 파일 자체 교체로 해결
+  - container_image: 이미지 재빌드/재배포로 해결
+  - configuration: 설정 변경 중심 조치
+  - source_code: 코드 수정 필요
+  - unknown: 아직 확정 불가
+
+- deployment_requirement
+  - none: 즉시 반영 가능
+  - service_restart: 서비스만 재시작하면 됨
+  - redeploy: 배포 단위 재배포 필요
+  - host_reboot: 호스트 자체 재부팅 필요
+  - unknown: 아직 모름
+
+- patch_feasible
+  - yes: 현재 근거로 정식 패치 가능
+  - no: 현재 바로 패치 곤란
+  - unknown: 아직 확정 못 함
+
+- mitigation_available
+  - yes: 임시 완화 가능
+  - no: 임시 완화 어려움
+  - unknown: 아직 확정 못 함
+
+- selected_action
+  - apply_patch_now: 지금 바로 패치
+  - apply_patch_planned: 계획된 일정에 패치
+  - apply_mitigation_now: 지금은 완화 먼저
+  - human_review: 사람 검토 필요
+  
+- confidence
+  - high: 강한 근거 기반
+  - medium: 대체로 근거는 있으나 일부 공백 존재
+  - low: 핵심 공백이 커서 판단 약함
+
+Consistency rules / 일관성 규칙
+
+- selected_action은 반드시 하나만 선택하십시오.
+- decision은 selected_action과 논리적으로 일치해야 합니다.
+- patch_feasible이 no인데 apply_patch_now를 선택하지 마십시오.
+- mitigation_available이 no인데 apply_mitigation_now를 선택하지 마십시오.
+- current_version, deployment_requirement, mitigation applicability 같은 핵심 필드가 약하면 confidence를 낮추거나 human_review를 선택하십시오.
+- reason_summary와 selected_action은 서로 논리적으로 일치해야 합니다.
+
+
 """
 
 
-def _default_patch_summary(operational_context: dict[str, Any]) -> str:
-    parts: list[str] = []
-    for key in ("primary_remediation", "operational_risk", "rollout_guidance"):
-        text = _safe_string(operational_context.get(key))
-        if text:
-            parts.append(text)
-    fallback = operational_context.get("fallback_mitigations")
-    if isinstance(fallback, list) and fallback:
-        mitigations = []
-        for item in fallback[:2]:
-            if isinstance(item, dict):
-                text = _safe_string(item.get("mitigation"))
-                if text:
-                    mitigations.append(text)
-            elif isinstance(item, str) and item.strip():
-                mitigations.append(item.strip())
-        if mitigations:
-            parts.append("임시 완화책: " + "; ".join(mitigations))
-    validations = _safe_text_list(operational_context.get("validation_checks"))
-    if validations:
-        parts.append("검증: " + "; ".join(validations[:3]))
-    return " ".join(parts).strip()
-
-
-def _default_asset_context(asset: dict[str, Any], risk_ref: dict[str, Any]) -> str:
-    chunks: list[str] = []
-    tier = _safe_string(asset.get("tier"))
-    metadata = asset.get("metadata") if isinstance(asset.get("metadata"), dict) else {}
-    network = asset.get("network_context") if isinstance(asset.get("network_context"), dict) else {}
-    security = asset.get("security_context") if isinstance(asset.get("security_context"), dict) else {}
-    software = asset.get("installed_software") if isinstance(asset.get("installed_software"), list) else []
-    if tier:
-        chunks.append(f"tier={tier}")
-    for key in ("environment", "network_exposure", "business_criticality"):
-        if _safe_string(metadata.get(key)):
-            chunks.append(f"{key}={metadata.get(key)}")
-    if _safe_string(network.get("public_ip")):
-        chunks.append(f"public_ip={network.get('public_ip')}")
-    if network.get("listening_ports") not in (None, "", [], {}):
-        chunks.append(f"listening_ports={network.get('listening_ports')}")
-    if security.get("running_as_root") not in (None, "", [], {}):
-        chunks.append(f"running_as_root={security.get('running_as_root')}")
-    if software:
-        compact_sw = []
-        for item in software[:3]:
-            if isinstance(item, dict):
-                compact_sw.append(" ".join(filter(None, [_safe_string(item.get("product")), _safe_string(item.get("version")), _safe_string(item.get("source_path"))])))
-        if compact_sw:
-            chunks.append("software=" + "; ".join(compact_sw))
-    risk_reason = _safe_string(risk_ref.get("risk_adjustment_reason"))
-    if risk_reason:
-        chunks.append("risk_evidence=" + risk_reason[:500])
-    return ", ".join(chunks) if chunks else "자산 문맥 정보가 충분하지 않습니다."
-
-
-def _normalize_followup_questions(value: Any) -> list[dict[str, str]]:
-    items = value if isinstance(value, list) else []
-    out: list[dict[str, str]] = []
-    for idx, item in enumerate(items, start=1):
-        if isinstance(item, str):
-            question = item.strip()
-            if not question:
-                continue
-            out.append({
-                "id": f"q{idx}",
-                "type": "patch_followup",
-                "question": question,
-                "why_needed": "최종 패치 운영 영향 판단에 필요한 추가 사실입니다.",
-                "source_missing_information": "",
-            })
-        elif isinstance(item, dict):
-            question = _safe_string(item.get("question"))
-            if not question:
-                continue
-            out.append({
-                "id": _safe_string(item.get("id"), f"q{idx}"),
-                "type": _normalize_question_type(item.get("type")),
-                "question": question,
-                "why_needed": _safe_string(item.get("why_needed")),
-                "source_missing_information": _safe_string(item.get("source_missing_information")),
-            })
-    return out
-
-
-def _stage1_followup_repair_system_prompt() -> str:
-    return """당신은 patch_impact_prejudge AI의 follow-up question repair 담당입니다.
-
-목표:
-이미 생성된 stage1 정보 정리 결과에서 missing_information은 있는데 followup_questions가 부족한 자산에 대해,
-기존 질문을 최대한 유지하면서 빠진 follow-up 질문만 보충합니다.
-
-규칙:
-- 출력은 반드시 JSON object 하나만 반환합니다.
-- 운영 판단, 위험도 판단, 승인 판단을 하지 마세요.
-- 질문은 관측 가능한 사실만 물어야 합니다.
-- 질문은 yes, no, unknown 또는 구체 값으로 답할 수 있어야 합니다.
-- 서로 다른 missing_information 항목은 가능한 한 각각 별도 질문으로 분리하세요.
-- 기존 followup_questions가 적절하면 재사용하고, 부족한 질문만 추가하세요.
-- 중요한 missing_information 항목 하나당 대응하는 followup question 하나가 있어야 합니다.
-- 각 followup question은 source_missing_information에 대응하는 missing_information 원문 하나를 반드시 적어야 합니다.
-
-출력 스키마:
-{
-  "followup_questions": [
-    {
-      "id": "",
-      "type": "dependency_check | shaded_copy_check | config_compatibility | restart_requirement | rollback_check | deployment_binding | patch_followup",
-      "question": "",
-      "why_needed": "",
-      "source_missing_information": ""
-    }
-  ]
-}
-"""
-
-
-def _dedupe_followup_questions(items: list[dict[str, str]]) -> list[dict[str, str]]:
-    deduped: list[dict[str, str]] = []
-    seen: set[str] = set()
-    for idx, item in enumerate(items, start=1):
-        question = _safe_string(item.get("question"))
-        if not question:
-            continue
-        source_missing_information = _safe_string(item.get("source_missing_information"))
-        normalized = _normalize_missing_key(source_missing_information) or _normalize_missing_key(question)
-        if normalized and normalized in seen:
-            continue
-        if normalized:
-            seen.add(normalized)
-        deduped.append({
-            "id": _safe_string(item.get("id"), f"q{idx}"),
-            "type": _normalize_question_type(item.get("type")),
-            "question": question,
-            "why_needed": _safe_string(item.get("why_needed")),
-            "source_missing_information": source_missing_information,
-        })
-    return deduped
-
-
-def _missing_item_to_question_text(missing_item: str) -> str:
-    text = _safe_string(missing_item).rstrip(".")
-    if text.endswith("여부 확인 필요"):
-        base = text[: -len("여부 확인 필요")].strip()
-        if base:
-            return f"{base} 여부를 확인할 수 있는가?"
-    if text.endswith("확인 필요"):
-        base = text[: -len("확인 필요")].strip()
-        if base:
-            return f"{base}를 확인할 수 있는가?"
-    if text.endswith("필요"):
-        return f"{text} 관련 사실을 확인할 수 있는가?"
-    return f"다음 항목을 직접 확인할 수 있는가: {text}"
-
-
-def _covered_missing_information(questions: list[dict[str, str]]) -> set[str]:
-    covered: set[str] = set()
-    for item in questions:
-        source = _safe_string(item.get("source_missing_information"))
-        normalized = _normalize_missing_key(source)
-        if normalized:
-            covered.add(normalized)
-    return covered
-
-
-def _assign_followup_sources(
-    missing_information: list[str],
-    questions: list[dict[str, str]],
-) -> list[dict[str, str]]:
-    missing_items = _safe_text_list(missing_information)
-    canonical_by_key = {_normalize_missing_key(item): item for item in missing_items}
-    used_keys: set[str] = set()
-    assigned: list[dict[str, str]] = []
-
-    for idx, item in enumerate(questions, start=1):
-        source = _safe_string(item.get("source_missing_information") or item.get("why_needed"))
-        source_key = _normalize_missing_key(source)
-        canonical_source = canonical_by_key.get(source_key, "")
-        if canonical_source:
-            used_keys.add(source_key)
-        assigned.append({
-            "id": _safe_string(item.get("id"), f"q{idx}"),
-            "type": _normalize_question_type(item.get("type")),
-            "question": _safe_string(item.get("question")),
-            "why_needed": _safe_string(item.get("why_needed")),
-            "source_missing_information": canonical_source,
-        })
-
-    remaining_missing = [
-        item for item in missing_items if _normalize_missing_key(item) not in used_keys
-    ]
-    missing_iter = iter(remaining_missing)
-    for item in assigned:
-        if _safe_string(item.get("source_missing_information")):
-            continue
-        try:
-            item["source_missing_information"] = next(missing_iter)
-        except StopIteration:
-            break
-    return _dedupe_followup_questions(assigned)
-
-
-def _fallback_followup_questions(
-    missing_information: list[str],
-    existing_questions: list[dict[str, str]],
-) -> list[dict[str, str]]:
-    questions = _assign_followup_sources(missing_information, existing_questions)
-    covered = _covered_missing_information(questions)
-    next_index = len(questions) + 1
-    for missing in missing_information:
-        missing_key = _normalize_missing_key(missing)
-        if missing_key in covered:
-            continue
-        questions.append({
-            "id": f"q{next_index}",
-            "type": "patch_followup",
-            "question": _missing_item_to_question_text(missing),
-            "why_needed": _safe_string(missing),
-            "source_missing_information": _safe_string(missing),
-        })
-        covered.add(missing_key)
-        next_index += 1
-    return _assign_followup_sources(missing_information, questions)
-
-
-def _repair_followup_questions_with_llm(
-    *,
-    cve_id: str,
-    title: str,
-    patch_summary: str,
-    asset_id: str,
-    asset_context: str,
-    known_facts: list[str],
-    missing_information: list[str],
-    followup_questions: list[dict[str, str]],
-    bedrock_model: Any = None,
-) -> list[dict[str, str]]:
-    payload = {
-        "cve_id": cve_id,
-        "title": title,
-        "patch_summary": patch_summary,
-        "asset_id": asset_id,
-        "asset_context": asset_context,
-        "known_facts": known_facts,
-        "missing_information": missing_information,
-        "existing_followup_questions": followup_questions,
-    }
-    try:
-        raw = _call_llm_json(_stage1_followup_repair_system_prompt(), payload, bedrock_model=bedrock_model)
-    except Exception:
-        return []
-    if not isinstance(raw, dict):
-        return []
-    return _normalize_followup_questions(raw.get("followup_questions"))
-
-
-def _ensure_followup_questions(
-    *,
-    cve_id: str,
-    title: str,
-    patch_summary: str,
-    asset_id: str,
-    asset_context: str,
-    known_facts: list[str],
-    missing_information: list[str],
-    followup_questions: list[dict[str, str]],
-    bedrock_model: Any = None,
-) -> list[dict[str, str]]:
-    missing = _safe_text_list(missing_information)
-    questions = _assign_followup_sources(missing, followup_questions)
-    if not missing:
-        return questions
-    covered = _covered_missing_information(questions)
-    if all(_normalize_missing_key(item) in covered for item in missing):
-        return questions
-
-    repaired = _repair_followup_questions_with_llm(
-        cve_id=cve_id,
-        title=title,
-        patch_summary=patch_summary,
-        asset_id=asset_id,
-        asset_context=asset_context,
-        known_facts=known_facts,
-        missing_information=missing,
-        followup_questions=questions,
-        bedrock_model=bedrock_model,
+def _planner_user_message(strategy_context: dict[str, Any]) -> str:
+    return (
+        "다음 context를 바탕으로 final patch strategy JSON을 생성하십시오.\n"
+        "어떤 필드가 context만으로 충분히 뒷받침되지 않으면 query_asset_fact로 direct technical fact를 수집하십시오.\n\n"
+        f"{json.dumps(strategy_context, ensure_ascii=False, indent=2)}"
     )
-    if repaired:
-        questions = _assign_followup_sources(missing, repaired)
-    covered = _covered_missing_information(questions)
-    if all(_normalize_missing_key(item) in covered for item in missing):
-        return questions
-    return _fallback_followup_questions(missing, questions)
 
 
-def _coerce_stage1_records(raw: Any, stage_payload: dict[str, Any], bedrock_model: Any = None) -> list[dict[str, Any]]:
-    raw_records = raw.get("records") if isinstance(raw, dict) else raw
-    if not isinstance(raw_records, list):
-        raw_records = []
-    by_cve_payload = {r.get("cve_id"): r for r in _safe_list(stage_payload.get("risk_records")) if isinstance(r, dict)}
+def _call_planner(strategy_context: dict[str, Any]) -> str:
+    system_prompt = _planner_system_prompt()
+    user_message = _planner_user_message(strategy_context)
 
-    normalized: list[dict[str, Any]] = []
-    for raw_record in raw_records:
-        if not isinstance(raw_record, dict):
-            continue
-        cve_id = _safe_string(raw_record.get("cve_id"))
-        payload_record = by_cve_payload.get(cve_id, {})
-        op_ctx = payload_record.get("operational_context") if isinstance(payload_record.get("operational_context"), dict) else {}
-        patch_summary = _safe_string(raw_record.get("patch_summary")) or _default_patch_summary(op_ctx)
-        title = _safe_string(raw_record.get("title") or payload_record.get("title"))
+    if Agent is not None:
+        agent = Agent(
+            model=DEFAULT_MODEL_ID,
+            system_prompt=system_prompt,
+            tools=[query_asset_fact],
+        )
+        result = agent(user_message)
+        return _extract_agent_text(result)
 
-        risk_assets = []
-        risk_record = payload_record.get("risk_record") if isinstance(payload_record.get("risk_record"), dict) else {}
-        for item in _safe_list(risk_record.get("impacted_assets")):
-            if isinstance(item, dict):
-                risk_assets.append(item)
-        llm_assets = raw_record.get("asset_prejudgements") if isinstance(raw_record.get("asset_prejudgements"), list) else []
-        llm_by_asset = {_safe_string(x.get("asset_id")): x for x in llm_assets if isinstance(x, dict)}
+    from patch_runtime.bedrock_json import call_bedrock_text
 
-        prejudgements: list[dict[str, Any]] = []
-        for asset_item in risk_assets:
-            asset_id = _safe_string(asset_item.get("instance_id"))
-            llm_item = llm_by_asset.get(asset_id, {})
-            infra_asset = asset_item.get("infra_context") if isinstance(asset_item.get("infra_context"), dict) else {}
-            risk_ref = asset_item.get("risk_reference") if isinstance(asset_item.get("risk_reference"), dict) else {}
-            known_facts = _safe_text_list(llm_item.get("known_facts"))
-            missing = _safe_text_list(llm_item.get("missing_information"))
-            asset_context = _safe_string(llm_item.get("asset_context")) or _default_asset_context(infra_asset, risk_ref)
-            questions = _ensure_followup_questions(
-                cve_id=cve_id,
-                title=title,
-                patch_summary=patch_summary,
-                asset_id=asset_id,
-                asset_context=asset_context,
-                known_facts=known_facts,
-                missing_information=missing,
-                followup_questions=_normalize_followup_questions(llm_item.get("followup_questions")),
-                bedrock_model=bedrock_model,
-            )
-            prejudgements.append({
-                "asset_id": asset_id,
-                "asset_context": asset_context,
-                "security_severity": _normalize_security_severity(risk_ref.get("calculated_risk")),
-                "known_facts": known_facts,
-                "missing_information": missing,
-                "followup_questions": questions,
-            })
+    return call_bedrock_text(
+        instructions=system_prompt,
+        prompt=user_message,
+        model_name=DEFAULT_MODEL_ID,
+    )
 
-        # If LLM returned assets not in risk_assets, preserve them too.
-        known = {item["asset_id"] for item in prejudgements}
-        for llm_item in llm_assets:
-            if not isinstance(llm_item, dict):
-                continue
-            asset_id = _safe_string(llm_item.get("asset_id"))
-            if not asset_id or asset_id in known:
-                continue
-            known_facts = _safe_text_list(llm_item.get("known_facts"))
-            missing = _safe_text_list(llm_item.get("missing_information"))
-            asset_context = _safe_string(llm_item.get("asset_context"))
-            prejudgements.append({
-                "asset_id": asset_id,
-                "asset_context": asset_context,
-                "security_severity": _normalize_security_severity(llm_item.get("security_severity")),
-                "known_facts": known_facts,
-                "missing_information": missing,
-                "followup_questions": _ensure_followup_questions(
-                    cve_id=cve_id,
-                    title=title,
-                    patch_summary=patch_summary,
-                    asset_id=asset_id,
-                    asset_context=asset_context,
-                    known_facts=known_facts,
-                    missing_information=missing,
-                    followup_questions=_normalize_followup_questions(llm_item.get("followup_questions")),
-                    bedrock_model=bedrock_model,
-                ),
-            })
 
-        normalized.append({
-            "cve_id": cve_id,
-            "title": title,
-            "patch_summary": patch_summary,
-            "asset_prejudgements": prejudgements,
-        })
+def _fallback_record(context_record: dict[str, Any], reason: str, unknowns: list[str] | None = None) -> dict[str, Any]:
+    operational = context_record.get("operational_context") if isinstance(context_record.get("operational_context"), dict) else {}
+    validation_checks = _listify_str(operational.get("validation_checks"))
+    return {
+        "asset_id": str(context_record.get("asset_id") or ""),
+        "cve_id": str(context_record.get("cve_id") or ""),
+        "risk_level": _normalize_risk_level(context_record.get("risk_level")),
+        "affected_component": "unknown",
+        "current_version": "unknown",
+        "target_version": "unknown",
+        "change_surface": "unknown",
+        "deployment_requirement": "unknown",
+        "patch_feasible": "unknown",
+        "mitigation_available": "unknown",
+        "mitigation_summary": "",
+        "selected_action": "human_review",
+        "decision": "현재 근거가 부족하므로 담당자가 패치 가능성과 완화 가능성을 검토해야 합니다.",
+        "confidence": "low",
+        "reason_summary": reason,
+        "validation_checks": validation_checks,
+        "remaining_unknowns": unknowns or ["insufficient_evidence"],
+    }
+
+
+def _normalize_record(record: dict[str, Any], context_record: dict[str, Any]) -> dict[str, Any]:
+    selected_action = _normalize_enum(record.get("selected_action"), ALLOWED_SELECTED_ACTIONS, "human_review")
+    normalized = {
+        "asset_id": str(record.get("asset_id") or context_record.get("asset_id") or "").strip(),
+        "cve_id": str(record.get("cve_id") or context_record.get("cve_id") or "").strip(),
+        "risk_level": _normalize_risk_level(record.get("risk_level") or context_record.get("risk_level")),
+        "affected_component": str(record.get("affected_component") or "unknown").strip() or "unknown",
+        "current_version": str(record.get("current_version") or "unknown").strip() or "unknown",
+        "target_version": str(record.get("target_version") or "unknown").strip() or "unknown",
+        "change_surface": _normalize_enum(record.get("change_surface"), ALLOWED_CHANGE_SURFACES, "unknown"),
+        "deployment_requirement": _normalize_enum(
+            record.get("deployment_requirement"),
+            ALLOWED_DEPLOYMENT_REQUIREMENTS,
+            "unknown",
+        ),
+        "patch_feasible": _normalize_enum(record.get("patch_feasible"), ALLOWED_PATCH_FEASIBLE, "unknown"),
+        "mitigation_available": _normalize_enum(
+            record.get("mitigation_available"),
+            ALLOWED_MITIGATION_AVAILABLE,
+            "unknown",
+        ),
+        "mitigation_summary": str(record.get("mitigation_summary") or "").strip(),
+        "selected_action": selected_action,
+        "decision": str(record.get("decision") or "").strip(),
+        "confidence": _normalize_enum(record.get("confidence"), ALLOWED_CONFIDENCE, "low"),
+        "reason_summary": str(record.get("reason_summary") or "").strip()
+        or "근거가 부족하여 담당자 검토가 필요합니다.",
+        "validation_checks": _listify_str(record.get("validation_checks")),
+        "remaining_unknowns": _listify_str(record.get("remaining_unknowns")),
+    }
     return normalized
 
 
-def _build_additional_requests(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    requests: list[dict[str, Any]] = []
-    for record in records:
-        for asset in _safe_list(record.get("asset_prejudgements")):
-            if not isinstance(asset, dict):
-                continue
-            questions = _normalize_followup_questions(asset.get("followup_questions"))
-            if not questions:
-                continue
-            requests.append({
-                "cve_id": _safe_string(record.get("cve_id")),
-                "title": _safe_string(record.get("title")),
-                "asset_id": _safe_string(asset.get("asset_id")),
-                "asset_context": _safe_string(asset.get("asset_context")),
-                "security_severity": _normalize_security_severity(asset.get("security_severity")),
-                "known_facts": _safe_text_list(asset.get("known_facts")),
-                "patch_summary": _safe_string(record.get("patch_summary")),
-                "missing_information": _safe_text_list(asset.get("missing_information")),
-                "questions": questions,
-            })
-    return requests
+def _normalize_final_result(raw_result: Any, strategy_context: dict[str, Any]) -> dict[str, Any]:
+    context_records = strategy_context.get("records") if isinstance(strategy_context.get("records"), list) else []
+    parsed_records: list[dict[str, Any]] = []
 
+    if isinstance(raw_result, dict) and isinstance(raw_result.get("records"), list):
+        parsed_records = [item for item in raw_result["records"] if isinstance(item, dict)]
 
-def _additional_request_meta() -> dict[str, Any]:
-    return {
-        "payload_type": "patch_followup_request_bundle",
-        "payload_purpose": "stage1 1차 패치 영향 판단에서 부족한 사실 정보를 자산 에이전트가 수집하기 위한 추가 질문 묶음입니다.",
-        "answering_rules": [
-            "운영 판단이나 승인 판단을 하지 않습니다.",
-            "각 질문은 관측 가능한 사실로만 답합니다.",
-            "모르면 unknown으로 답합니다.",
-        ],
-        "field_descriptions": {
-            "request_count": "follow-up이 필요한 자산 질문 묶음 개수입니다.",
-            "requests": "자산별 추가 질문 요청 목록입니다.",
-            "requests[].cve_id": "질문 대상 CVE ID입니다.",
-            "requests[].title": "취약점 제목입니다.",
-            "requests[].asset_id": "질문 대상 자산 ID입니다.",
-            "requests[].asset_context": "현재 자산의 핵심 운영 상태를 압축한 요약입니다.",
-            "requests[].security_severity": "위험도 평가 단계가 전달한 자산별 보안 위험도 참고값입니다.",
-            "requests[].known_facts": "현재 입력만으로 확인된 핵심 사실 목록입니다.",
-            "requests[].patch_summary": "해당 CVE의 정식 조치, 운영 위험, 임시 완화책, 검증 포인트를 압축한 요약입니다.",
-            "requests[].missing_information": "최종 판단을 위해 아직 부족한 정보 목록입니다.",
-            "requests[].questions": "자산 에이전트가 답해야 하는 질문 목록입니다.",
-            "requests[].questions[].id": "질문 식별자입니다.",
-            "requests[].questions[].type": "질문 분류입니다.",
-            "requests[].questions[].question": "실제로 확인해야 하는 질문 문장입니다.",
-            "requests[].questions[].why_needed": "이 질문이 필요한 이유입니다.",
-        },
+    context_index = {
+        _record_key(str(record.get("asset_id") or ""), str(record.get("cve_id") or "")): record
+        for record in context_records
+        if isinstance(record, dict)
     }
 
+    normalized_records: list[dict[str, Any]] = []
+    seen_keys: set[str] = set()
+    for parsed in parsed_records:
+        key = _record_key(str(parsed.get("asset_id") or ""), str(parsed.get("cve_id") or ""))
+        context_record = context_index.get(key)
+        if not context_record:
+            continue
+        normalized = _normalize_record(parsed, context_record)
+        normalized_records.append(normalized)
+        seen_keys.add(key)
 
-def run_patch_impact_evaluation(
-    risk_result: Optional[Any] = None,
-    infra_context: Optional[Any] = None,
-    operational_payload: Optional[Any] = None,
-    bedrock_model: Any = None,
-    save_path: Optional[Union[str, Path]] = None,
-    additional_request_path: Optional[Union[str, Path]] = None,
-) -> JSONDict:
-    risk_result = _normalize_json_like(risk_result if risk_result is not None else _load_json_file(DEFAULT_RISK_PATH, []))
-    infra_context = _normalize_json_like(infra_context if infra_context is not None else _load_json_file(DEFAULT_INFRA_PATH, {}))
-    operational_payload = _normalize_json_like(operational_payload if operational_payload is not None else _load_json_file(DEFAULT_OPERATIONAL_PATH, {}))
-    stage_payload = _build_stage1_dataset(risk_result, infra_context, operational_payload)
-    raw = _call_llm_json(_stage1_system_prompt(), stage_payload, bedrock_model=bedrock_model)
-    records = _coerce_stage1_records(raw, stage_payload, bedrock_model=bedrock_model)
-    result = {"records": records}
-
-    save_target = save_path or PATCH_IMPACT_RESULT_PATH
-    request_target = additional_request_path or ADDITIONAL_ASSET_REQUEST_PATH
-    additional_request = {
-        "_meta": _additional_request_meta(),
-        "requests": _build_additional_requests(records),
-    }
-    additional_request["request_count"] = len(additional_request["requests"])
-    _save_json_file(save_target, result)
-    _save_json_file(request_target, additional_request)
-    return {
-        "result": result,
-        "additional_request": additional_request,
-    }
-
-
-def run_patch_followup(requests: Any = None, infra_context: Any = None, region: str = "ap-northeast-2", infra_matching_runtime_arn: Any = None, save_path: Any = None) -> JSONDict:
-    try:
-        from patch_runtime.followup_actions import run_patch_followup_conversation
-    except ModuleNotFoundError:
-        from followup_actions import run_patch_followup_conversation  # type: ignore
-
-    if requests is None:
-        requests = _load_json_file(ADDITIONAL_ASSET_REQUEST_PATH, {"requests": []})
-    if infra_context is None:
-        infra_context = _load_json_file(DEFAULT_INFRA_PATH, {})
-    return run_patch_followup_conversation(
-        requests=requests,
-        infra_context=infra_context,
-        region=region,
-        infra_matching_runtime_arn=infra_matching_runtime_arn,
-        save_path=save_path,
-    )
-
-
-def run_patch_impact_finalization(
-    prejudge_result: Optional[Any] = None,
-    additional_asset_context: Optional[Any] = None,
-    infra_context: Optional[Any] = None,
-    region: str = "ap-northeast-2",
-    infra_matching_runtime_arn: Any = None,
-    allow_followup: bool = True,
-    bedrock_model: Any = None,
-    save_path: Optional[Union[str, Path]] = None,
-    followup_save_path: Optional[Union[str, Path]] = None,
-    return_debug: bool = False,
-) -> JSONDict:
-    try:
-        from patch_runtime.finalize_patch import finalize_patch_strategy
-    except ModuleNotFoundError:
-        from finalize_patch import finalize_patch_strategy  # type: ignore
-
-    if prejudge_result is None:
-        prejudge_result = _load_json_file(PATCH_IMPACT_RESULT_PATH, {})
-    if additional_asset_context is None:
-        additional_asset_context = _load_json_file(DEFAULT_FOLLOWUP_CONTEXT_PATH, {})
-    if infra_context is None:
-        infra_context = _load_json_file(DEFAULT_INFRA_PATH, {})
-    return finalize_patch_strategy(
-        prejudge_result=prejudge_result if isinstance(prejudge_result, dict) else {},
-        additional_asset_context=additional_asset_context if isinstance(additional_asset_context, dict) else {},
-        infra_context=infra_context if isinstance(infra_context, dict) else {},
-        region=region,
-        infra_matching_runtime_arn=_safe_string(infra_matching_runtime_arn) or None,
-        allow_followup=allow_followup,
-        bedrock_model=bedrock_model,
-        save_path=save_path or FINAL_RESULT_PATH,
-        followup_save_path=followup_save_path or DEFAULT_FOLLOWUP_CONTEXT_PATH,
-        return_debug=return_debug,
-    )
-
-
-def run_patch_impact_pipeline(
-    risk_result: Optional[Any] = None,
-    infra_context: Optional[Any] = None,
-    operational_payload: Optional[Any] = None,
-    additional_asset_context: Optional[Any] = None,
-    region: str = "ap-northeast-2",
-    infra_matching_runtime_arn: Any = None,
-    allow_followup: bool = True,
-    bedrock_model: Any = None,
-    stage1_save_path: Optional[Union[str, Path]] = None,
-    additional_request_path: Optional[Union[str, Path]] = None,
-    followup_save_path: Optional[Union[str, Path]] = None,
-    final_save_path: Optional[Union[str, Path]] = None,
-) -> JSONDict:
-    stage_output = run_patch_impact_evaluation(
-        risk_result=risk_result,
-        infra_context=infra_context,
-        operational_payload=operational_payload,
-        bedrock_model=bedrock_model,
-        save_path=stage1_save_path or PATCH_IMPACT_RESULT_PATH,
-        additional_request_path=additional_request_path or ADDITIONAL_ASSET_REQUEST_PATH,
-    )
-    final_debug = run_patch_impact_finalization(
-        prejudge_result=stage_output.get("result"),
-        additional_asset_context=additional_asset_context if isinstance(additional_asset_context, dict) else {},
-        infra_context=infra_context,
-        region=region,
-        infra_matching_runtime_arn=infra_matching_runtime_arn,
-        allow_followup=allow_followup,
-        bedrock_model=bedrock_model,
-        save_path=final_save_path or FINAL_RESULT_PATH,
-        followup_save_path=followup_save_path or DEFAULT_FOLLOWUP_CONTEXT_PATH,
-        return_debug=True,
-    )
-    return {
-        "prejudge_result": stage_output.get("result", {}),
-        "additional_request": stage_output.get("additional_request", {"requests": [], "request_count": 0}),
-        "followup_stage": final_debug.get("followup_stage", {"responses": [], "response_count": 0}),
-        "result": final_debug.get("result", {}),
-    }
-
-
-def load_latest_result(default: Any = None) -> Any:
-    if FINAL_RESULT_PATH.exists():
-        return _load_json_file(FINAL_RESULT_PATH, default)
-    return _load_json_file(PATCH_IMPACT_RESULT_PATH, default)
-
-
-def handle_agent_request(request: JSONDict) -> JSONDict:
-    if not isinstance(request, dict):
-        raise ValueError("payload는 JSON object 형태여야 합니다.")
-    action = str(request.get("action") or "evaluate_patch_impact").strip().lower()
-
-    if action in {"evaluate_patch_impact", "bootstrap", "init"}:
-        stage_output = run_patch_impact_evaluation(
-            risk_result=request.get("risk_result"),
-            infra_context=request.get("infra_context"),
-            operational_payload=request.get("operational_payload"),
-            bedrock_model=request.get("bedrock_model_id") or request.get("patch_impact_bedrock_model"),
-            save_path=request.get("save_path") or PATCH_IMPACT_RESULT_PATH,
-            additional_request_path=request.get("additional_request_path") or ADDITIONAL_ASSET_REQUEST_PATH,
+    for key, context_record in context_index.items():
+        if key in seen_keys:
+            continue
+        normalized_records.append(
+            _fallback_record(
+                context_record,
+                "필수 필드가 충분히 채워지지 않아 담당자 검토가 필요합니다.",
+            )
         )
+
+    return PatchStrategyResult(records=[PatchStrategyRecord(**record) for record in normalized_records]).model_dump()
+
+
+def _run_patch_strategy(payload: dict[str, Any]) -> dict[str, Any]:
+    strategy_context = _build_strategy_context(payload)
+    assets = payload.get("infra_context", {}).get("assets") if isinstance(payload.get("infra_context"), dict) else []
+    _RUNTIME_STATE["started_at"] = time.time()
+    _RUNTIME_STATE["record_started_at"] = {}
+    _RUNTIME_STATE["record_query_count"] = {}
+    _RUNTIME_STATE["responses"] = []
+    _RUNTIME_STATE["asset_index"] = {
+        str(asset.get("asset_id") or asset.get("instance_id")): asset
+        for asset in assets
+        if isinstance(asset, dict) and (asset.get("asset_id") or asset.get("instance_id"))
+    }
+    _RUNTIME_STATE["allow_followup"] = bool(payload.get("allow_followup", True))
+    _RUNTIME_STATE["runtime_arn"] = str(
+        payload.get("infra_matching_runtime_arn")
+        or payload.get("asset_matching_runtime_arn")
+        or os.environ.get("INFRA_MATCHING_AGENTCORE_ARN")
+        or os.environ.get("ASSET_MATCHING_AGENTCORE_ARN")
+        or os.environ.get("ASSET_MATCHING_ARN")
+        or ""
+    ).strip()
+    _RUNTIME_STATE["region"] = str(payload.get("region") or DEFAULT_REGION)
+
+    raw_text = _call_planner(strategy_context)
+    json_text = _extract_json_text(raw_text)
+    try:
+        parsed_result = json.loads(json_text)
+    except Exception:  # noqa: BLE001
+        parsed_result = {}
+
+    final_result = _normalize_final_result(parsed_result, strategy_context)
+    asset_fact_trace = {
+        "generated_at": _utc_now(),
+        "response_count": len(_RUNTIME_STATE["responses"]),
+        "responses": _RUNTIME_STATE["responses"],
+    }
+
+    _write_json(payload.get("context_save_path"), strategy_context)
+    _write_json(payload.get("asset_fact_trace_path"), asset_fact_trace)
+    _write_json(payload.get("save_path"), final_result)
+
+    return {
+        "action": "run_patch_strategy",
+        "generated_at": _utc_now(),
+        "strategy_context": strategy_context,
+        "asset_fact_trace": asset_fact_trace,
+        "result": final_result,
+    }
+
+
+def invoke(payload: dict[str, Any] | None) -> dict[str, Any]:
+    request = payload or {}
+    action = str(request.get("action") or "run_patch_strategy").strip().lower()
+
+    if action in {"build_patch_strategy_context", "build_context"}:
+        context = _build_strategy_context(request)
+        _write_json(request.get("context_save_path") or request.get("save_path"), context)
         return {
             "action": action,
-            "status": "ok",
-            "result": stage_output.get("result", {}),
-            "additional_request": stage_output.get("additional_request", {"requests": [], "request_count": 0}),
+            "generated_at": _utc_now(),
+            "result": context,
         }
 
-    if action in {"run_patch_followup", "followup", "ask_asset_agent", "run_followup_conversation", "followup_conversation"}:
-        result = run_patch_followup(
-            requests=request.get("requests") or request.get("additional_request"),
-            infra_context=request.get("infra_context"),
-            region=_safe_string(request.get("region"), "ap-northeast-2"),
-            infra_matching_runtime_arn=request.get("infra_matching_runtime_arn"),
-            save_path=request.get("save_path"),
-        )
-        return {"action": action, "status": "ok", "result": result}
+    if action in {"run_patch_strategy", "patch", "pipeline", "query_patch_strategy", "query"}:
+        return _run_patch_strategy(request)
 
-    if action in {"run_patch_impact_pipeline", "run_patch_impact", "pipeline"}:
-        result = run_patch_impact_pipeline(
-            risk_result=request.get("risk_result"),
-            infra_context=request.get("infra_context"),
-            operational_payload=request.get("operational_payload"),
-            additional_asset_context=request.get("additional_asset_context"),
-            region=_safe_string(request.get("region"), "ap-northeast-2"),
-            infra_matching_runtime_arn=request.get("infra_matching_runtime_arn"),
-            allow_followup=bool(request.get("allow_followup", True)),
-            bedrock_model=request.get("bedrock_model_id") or request.get("patch_impact_bedrock_model"),
-            stage1_save_path=request.get("stage1_save_path") or request.get("prejudge_save_path") or PATCH_IMPACT_RESULT_PATH,
-            additional_request_path=request.get("additional_request_path") or ADDITIONAL_ASSET_REQUEST_PATH,
-            followup_save_path=request.get("followup_save_path") or DEFAULT_FOLLOWUP_CONTEXT_PATH,
-            final_save_path=request.get("save_path") or FINAL_RESULT_PATH,
-        )
-        return {"action": action, "status": "ok", **result}
-
-    if action in {"finalize_patch_impact", "finalize"}:
-        result = run_patch_impact_finalization(
-            prejudge_result=request.get("prejudge_result"),
-            additional_asset_context=request.get("additional_asset_context"),
-            infra_context=request.get("infra_context"),
-            region=_safe_string(request.get("region"), "ap-northeast-2"),
-            infra_matching_runtime_arn=request.get("infra_matching_runtime_arn"),
-            allow_followup=bool(request.get("allow_followup", True)),
-            bedrock_model=request.get("bedrock_model_id") or request.get("patch_impact_bedrock_model"),
-            save_path=request.get("save_path"),
-            followup_save_path=request.get("followup_save_path"),
-        )
-        return {"action": action, "status": "ok", "result": result}
-
-    if action in {"query_patch_impact", "query"}:
-        cve_id = _safe_string(request.get("cve_id"))
-        asset_id = _safe_string(request.get("asset_id") or request.get("instance_id"))
-        latest = load_latest_result(default={"records": []})
-        records = _safe_list(latest.get("records")) if isinstance(latest, dict) else []
-        filtered: list[dict[str, Any]] = []
-        for record in records:
-            if cve_id and _safe_string(record.get("cve_id")) != cve_id:
-                continue
-            if asset_id:
-                decisions_key = "asset_decisions" if isinstance(record.get("asset_decisions"), list) else "asset_prejudgements"
-                matched = [item for item in _safe_list(record.get(decisions_key)) if isinstance(item, dict) and _safe_string(item.get("asset_id")) == asset_id]
-                if not matched:
-                    continue
-                record = dict(record)
-                record[decisions_key] = matched
-            filtered.append(record)
-        return {"action": action, "status": "ok", "result_count": len(filtered), "records": filtered}
-
-    raise ValueError(f"지원하지 않는 action 입니다: {action}")
-
-
-def invoke(payload: JSONDict) -> JSONDict:
-    return handle_agent_request(payload)
+    raise ValueError(f"unsupported patch impact action: {action}")

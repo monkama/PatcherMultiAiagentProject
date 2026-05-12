@@ -73,10 +73,8 @@ STOP_STAGE_OPTIONS = {
     "1": "vuln",
     "2": "asset",
     "3": "risk",
-    "4": "patch_pre",
-    "5": "patch_followup",
-    "6": "patch_final",
-    "7": "patch_execution",
+    "4": "patch",
+    "5": "patch_execution",
 }
 
 VULN_RESULT_FILENAMES = {
@@ -131,13 +129,13 @@ def _print_usage_guide() -> None:
         "   필요 입력: infra_context.json, risk_evaluation_result.json, operational_impact_payloads.json\n"
         "   runtime ARN은 .env 에 설정하거나 실행 시 직접 입력하면 됩니다.\n"
         "   patch는 현재 Bedrock 기반이며 OpenAI 키 입력은 더 이상 필요하지 않습니다.\n"
-        "   stage1 정리, asset follow-up, final 판단을 한 번의 patch 호출 안에서 처리합니다.\n"
+        "   위험도 기반 전략 판단, 필요한 경우 asset fact 조회, 최종 판단을 한 번의 patch 호출 안에서 처리합니다.\n"
         "6. test\n"
         "   중간 단계 주입 테스트\n"
         "   stop_stage 를 고르고, 그 단계에 필요한 JSON만 넣으면 됩니다.\n"
         "7. patch_exec_only\n"
         "   패치 실행 에이전트만 단독으로 실행\n"
-        "   필요 입력: patch_impact_final_result.json\n"
+        "   필요 입력: patch_strategy_result.json\n"
     )
     print(
         "[빠른 예시]\n"
@@ -240,7 +238,7 @@ def _choose_stop_stage() -> str:
     print("\n중간 테스트 종료 stage 선택")
     for number, stage_name in STOP_STAGE_OPTIONS.items():
         print(f"{number}. {stage_name}")
-    selected = _input("번호 입력 [6]: ") or "6"
+    selected = _input("번호 입력 [4]: ") or "4"
     if selected not in STOP_STAGE_OPTIONS:
         raise ValueError("지원하지 않는 stop_stage 번호입니다.")
     return STOP_STAGE_OPTIONS[selected]
@@ -323,23 +321,17 @@ def _default_input_path(key: str) -> Path | None:
             _latest_from_dir(latest_root / "risk_evaluation_agent", "risk_evaluation_result.json"),
             PROJECT_ROOT / "OutputResult" / "RiskevalAgent" / "risk_evaluation_result.json",
         ])
-    if key == "prejudge_result":
+    if key == "patch_context":
         return _first_existing([
-            latest_root / "patch_impact_agent" / "latest" / "patch_impact_prejudge_result.json",
-            _latest_from_dir(latest_root / "patch_impact_agent", "patch_impact_prejudge_result.json"),
-            PROJECT_ROOT / "OutputResult" / "PatchImAgent" / "stage1_prejudge" / "patch_impact_prejudge_result.json",
+            latest_root / "patch_impact_agent" / "latest" / "patch_strategy_context.json",
+            _latest_from_dir(latest_root / "patch_impact_agent", "patch_strategy_context.json"),
+            PROJECT_ROOT / "OutputResult" / "PatchImAgent" / "patch_strategy_context.json",
         ])
-    if key == "followup_result":
+    if key == "asset_fact_trace":
         return _first_existing([
-            latest_root / "patch_impact_agent" / "latest" / "additional_asset_response.json",
-            _latest_from_dir(latest_root / "patch_impact_agent", "additional_asset_response.json"),
-            PROJECT_ROOT / "OutputResult" / "SwarmAgent" / "additional_asset_response.json",
-        ])
-    if key in {"followup_request", "additional_request"}:
-        return _first_existing([
-            latest_root / "patch_impact_agent" / "latest" / "additional_asset_request.json",
-            _latest_from_dir(latest_root / "patch_impact_agent", "additional_asset_request.json"),
-            PROJECT_ROOT / "OutputResult" / "PatchImAgent" / "stage2_followup" / "additional_asset_request.json",
+            latest_root / "patch_impact_agent" / "latest" / "asset_fact_trace.json",
+            _latest_from_dir(latest_root / "patch_impact_agent", "asset_fact_trace.json"),
+            PROJECT_ROOT / "OutputResult" / "PatchImAgent" / "asset_fact_trace.json",
         ])
     if key == "raw_result":
         return _first_existing([
@@ -348,11 +340,11 @@ def _default_input_path(key: str) -> Path | None:
             REPO_ROOT / "vuln_runtime_result" / "focused_selected_raw_cves.json",
             PROJECT_ROOT / "OutputResult" / "VulAgent" / "focused_selected_raw_cves.json",
         ])
-    if key == "patch_final_result":
+    if key == "patch_result":
         return _first_existing([
-            latest_root / "patch_impact_agent" / "latest" / "patch_impact_final_result.json",
-            _latest_from_dir(latest_root / "patch_impact_agent", "patch_impact_final_result.json"),
-            PROJECT_ROOT / "OutputResult" / "PatchImAgent" / "stage3_final" / "patch_impact_final_result.json",
+            latest_root / "patch_impact_agent" / "latest" / "patch_strategy_result.json",
+            _latest_from_dir(latest_root / "patch_impact_agent", "patch_strategy_result.json"),
+            PROJECT_ROOT / "OutputResult" / "PatchImAgent" / "patch_strategy_result.json",
         ])
     return None
 
@@ -424,7 +416,7 @@ def _build_payload_interactively() -> tuple[dict[str, Any], str]:
             PATCH_EXECUTION_RUNTIME_ARN_ENV_KEYS,
         )
 
-        payload["patch_final_result"] = _prompt_json_file("patch_final_result", "patch_final_result", required=True)
+        payload["patch_final_result"] = _prompt_json_file("patch_result", "patch_result", required=True)
         payload["prompt"] = _prompt_with_default("패치 실행 프롬프트", "보안 패치 분석 및 자동 실행")
 
     elif mode == "test":
@@ -443,14 +435,13 @@ def _build_payload_interactively() -> tuple[dict[str, Any], str]:
                 PATCH_EXECUTION_RUNTIME_ARN_ENV_KEYS,
             )
 
-        if stop_stage in {"patch_pre", "patch_followup", "patch_final"}:
+        if stop_stage == "patch":
             patch_runtime_arn = _prompt_optional_runtime_arn("Patch runtime ARN", os.environ.get("PATCH_IMPACT_ARN") or DEFAULT_PATCH_IMPACT_ARN)
             payload["patch_impact_runtime_arn"] = _require_runtime_arn(
                 patch_runtime_arn,
                 "Patch runtime ARN",
                 PATCH_IMPACT_RUNTIME_ARN_ENV_KEYS,
             )
-        if stop_stage in {"patch_followup", "patch_final"}:
             infra_matching_runtime_arn = _prompt_optional_runtime_arn(
                 "Infra Matching runtime ARN",
                 DEFAULT_INFRA_MATCHING_ARN,
@@ -466,24 +457,12 @@ def _build_payload_interactively() -> tuple[dict[str, Any], str]:
         elif stop_stage == "risk":
             test_inputs["infra_context"] = _prompt_json_file("infra_context", "infra_context", required=True)
             test_inputs["risk_assessment_payload"] = _prompt_json_file("risk_assessment_payload", "risk_assessment_payload", required=True)
-        elif stop_stage == "patch_pre":
+        elif stop_stage == "patch":
             test_inputs["infra_context"] = _prompt_json_file("infra_context", "infra_context", required=True)
             test_inputs["risk_result"] = _prompt_json_file("risk_result", "risk_result", required=True)
             test_inputs["operational_payload"] = _prompt_json_file("operational_payload", "operational_payload", required=True)
-        elif stop_stage == "patch_followup":
-            test_inputs["infra_context"] = _prompt_json_file("infra_context", "infra_context", required=True)
-            test_inputs["prejudge_result"] = _prompt_json_file("prejudge_result", "prejudge_result", required=True)
-            followup_request = _prompt_json_file("followup_request", "followup_request", required=False)
-            if followup_request is not None:
-                test_inputs["followup_request"] = followup_request
-        elif stop_stage == "patch_final":
-            test_inputs["prejudge_result"] = _prompt_json_file("prejudge_result", "prejudge_result", required=True)
-            followup_result = _prompt_json_file("followup_result", "followup_result", required=False)
-            if followup_result is not None:
-                test_inputs["followup_result"] = followup_result
-
         elif stop_stage == "patch_execution":
-            test_inputs["patch_final_result"] = _prompt_json_file("patch_final_result", "patch_final_result", required=True)
+            test_inputs["patch_final_result"] = _prompt_json_file("patch_result", "patch_result", required=True)
             payload["prompt"] = _prompt_with_default("패치 실행 프롬프트 (기본값)", "보안 패치 분석 및 자동 실행")
 
         payload["test_inputs"] = test_inputs
@@ -530,8 +509,30 @@ def _save_stage_wrapper(agent_name: str, run_tag: str, stage_data: dict[str, Any
     _save_named_json(agent_name, run_tag, "stage_response.json", stage_data)
 
 
-def _normalize_patch_to_asset_log(followup_stage: dict[str, Any], run_tag: str) -> dict[str, Any]:
-    responses = followup_stage.get("responses") if isinstance(followup_stage.get("responses"), list) else []
+def _cleanup_patch_impact_output_files(run_tag: str) -> None:
+    stale_filenames = (
+        "stage_response.json",
+        "patch_strategy_context.json",
+        "asset_fact_trace.json",
+        "patch_impact_prejudge_result.json",
+        "patch_impact_final_result.json",
+        "additional_asset_response.json",
+    )
+    for target_dir in (
+        RESULT_ROOT / "patch_impact_agent" / run_tag,
+        RESULT_ROOT / "patch_impact_agent" / "latest",
+    ):
+        for filename in stale_filenames:
+            target = target_dir / filename
+            try:
+                if target.exists():
+                    target.unlink()
+            except OSError:
+                continue
+
+
+def _normalize_patch_to_asset_log(asset_fact_trace: dict[str, Any], run_tag: str) -> dict[str, Any]:
+    responses = asset_fact_trace.get("responses") if isinstance(asset_fact_trace.get("responses"), list) else []
     conversations: list[dict[str, Any]] = []
 
     for item in responses:
@@ -558,7 +559,7 @@ def _normalize_patch_to_asset_log(followup_stage: dict[str, Any], run_tag: str) 
                 question_type = str(
                     question_info.get("type")
                     or normalized_answer.get("type")
-                    or "patch_followup"
+                    or "technical_fact_check"
                 ).strip()
                 if not question:
                     continue
@@ -579,11 +580,21 @@ def _normalize_patch_to_asset_log(followup_stage: dict[str, Any], run_tag: str) 
                 "questions": [
                     {
                         "id": str(answer.get("id") or "").strip(),
-                        "question_type": str(answer.get("type") or "patch_followup").strip(),
+                        "question_type": str(answer.get("type") or "technical_fact_check").strip(),
                         "question": str(answer.get("question") or "").strip(),
                     }
                     for answer in answers
                     if isinstance(answer, dict) and str(answer.get("question") or "").strip()
+                ]
+            }
+        if not question_bundle.get("questions") and str(item.get("question") or "").strip():
+            question_bundle = {
+                "questions": [
+                    {
+                        "id": "",
+                        "question_type": "technical_fact_check",
+                        "question": str(item.get("question") or "").strip(),
+                    }
                 ]
             }
 
@@ -592,29 +603,63 @@ def _normalize_patch_to_asset_log(followup_stage: dict[str, Any], run_tag: str) 
                 "answers": item.get("answers", []),
                 "unknowns": item.get("unknowns", []),
             }
+        if not parsed_answer and any(item.get(key) for key in ("answer", "confidence", "evidence", "error")):
+            parsed_answer = {
+                "answer": str(item.get("answer") or "").strip(),
+                "confidence": str(item.get("confidence") or "").strip(),
+                "evidence": item.get("evidence") if isinstance(item.get("evidence"), list) else [],
+                "status": str(item.get("status") or "").strip(),
+                "error": str(item.get("error") or "").strip(),
+            }
 
         if transcript is None:
             transcript = []
-            for turn_number, question_item in enumerate(question_bundle.get("questions", []), start=1):
-                if isinstance(question_item, dict):
-                    question = str(question_item.get("question") or question_item.get("prompt") or "").strip()
-                    question_type = str(
-                        question_item.get("question_type")
-                        or question_item.get("type")
-                        or "patch_followup"
-                    ).strip()
-                else:
-                    question = str(question_item or "").strip()
-                    question_type = "patch_followup"
-                if not question:
-                    continue
+            direct_question = str(item.get("question") or "").strip()
+            direct_answer = str(item.get("answer") or "").strip()
+            direct_confidence = str(item.get("confidence") or "").strip()
+            direct_error = str(item.get("error") or "").strip()
+            direct_evidence = item.get("evidence") if isinstance(item.get("evidence"), list) else []
+            if direct_question:
                 transcript.append(
                     {
-                        "turn": turn_number,
-                        "question_type": question_type,
-                        "question": question,
+                        "turn": 1,
+                        "speaker": "patch_impact_agent",
+                        "question_type": "technical_fact_check",
+                        "question": direct_question,
                     }
                 )
+                if direct_answer or direct_error or direct_evidence:
+                    transcript.append(
+                        {
+                            "turn": 2,
+                            "speaker": "asset_matching_agent",
+                            "answer": direct_answer or None,
+                            "error": direct_error or None,
+                            "confidence": direct_confidence or None,
+                            "evidence": direct_evidence,
+                        }
+                    )
+            else:
+                for turn_number, question_item in enumerate(question_bundle.get("questions", []), start=1):
+                    if isinstance(question_item, dict):
+                        question = str(question_item.get("question") or question_item.get("prompt") or "").strip()
+                        question_type = str(
+                            question_item.get("question_type")
+                            or question_item.get("type")
+                            or "technical_fact_check"
+                        ).strip()
+                    else:
+                        question = str(question_item or "").strip()
+                        question_type = "technical_fact_check"
+                    if not question:
+                        continue
+                    transcript.append(
+                        {
+                            "turn": turn_number,
+                            "question_type": question_type,
+                            "question": question,
+                        }
+                    )
 
         request_id = str(item.get("request_id") or "").strip()
         cve_id = str(item.get("cve_id") or "").strip()
@@ -639,18 +684,18 @@ def _normalize_patch_to_asset_log(followup_stage: dict[str, Any], run_tag: str) 
 
     return {
         "run_tag": run_tag,
-        "generated_at": followup_stage.get("generated_at"),
-        "response_count": followup_stage.get("response_count") or len(responses),
+        "generated_at": asset_fact_trace.get("generated_at"),
+        "response_count": asset_fact_trace.get("response_count") or len(responses),
         "conversations": conversations,
     }
 
 
-def _save_patch_to_asset_conversation_log(run_tag: str, followup_stage: dict[str, Any]) -> None:
+def _save_patch_to_asset_conversation_log(run_tag: str, asset_fact_trace: dict[str, Any]) -> None:
     PATCH_TO_ASSET_LOG_ROOT.mkdir(parents=True, exist_ok=True)
     run_dir = PATCH_TO_ASSET_LOG_ROOT / run_tag
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    normalized_log = _normalize_patch_to_asset_log(followup_stage, run_tag)
+    normalized_log = _normalize_patch_to_asset_log(asset_fact_trace, run_tag)
     _write_json(run_dir / "conversation_log.json", normalized_log)
     _write_json(PATCH_TO_ASSET_LOG_ROOT / "latest.json", normalized_log)
 
@@ -770,22 +815,15 @@ def _save_result_bundle(result: dict[str, Any], request_payload: dict[str, Any],
         if isinstance(risk_stage.get("swarm_queries"), list):
             _save_risk_to_asset_conversation_log(run_tag, risk_stage)
 
-    patch_pre_stage = result.get("patch_pre_stage") if isinstance(result.get("patch_pre_stage"), dict) else None
-    if patch_pre_stage:
-        _save_stage_wrapper("patch_impact_agent", run_tag, {"stage": "patch_pre", **patch_pre_stage})
-        if "result" in patch_pre_stage:
-            _save_named_json("patch_impact_agent", run_tag, "patch_impact_prejudge_result.json", patch_pre_stage.get("result"))
-
-    followup_stage = result.get("followup_stage") if isinstance(result.get("followup_stage"), dict) else None
-    if followup_stage:
-        _save_named_json("patch_impact_agent", run_tag, "additional_asset_response.json", followup_stage)
-        _save_patch_to_asset_conversation_log(run_tag, followup_stage)
-
-    patch_final_stage = result.get("patch_final_stage") if isinstance(result.get("patch_final_stage"), dict) else None
-    if patch_final_stage:
-        _save_stage_wrapper("patch_impact_agent", run_tag, {"stage": "patch_final", **patch_final_stage})
-        if "result" in patch_final_stage:
-            _save_named_json("patch_impact_agent", run_tag, "patch_impact_final_result.json", patch_final_stage.get("result"))
+    patch_stage = result.get("patch_stage") if isinstance(result.get("patch_stage"), dict) else None
+    if patch_stage:
+        asset_fact_trace = patch_stage.get("asset_fact_trace") if isinstance(patch_stage.get("asset_fact_trace"), dict) else None
+        patch_result = patch_stage.get("result") if isinstance(patch_stage.get("result"), dict) else None
+        _cleanup_patch_impact_output_files(run_tag)
+        if asset_fact_trace:
+            _save_patch_to_asset_conversation_log(run_tag, asset_fact_trace)
+        if patch_result:
+            _save_named_json("patch_impact_agent", run_tag, "patch_strategy_result.json", patch_result)
 
     patch_execution_stage = result.get("patch_execution_stage") if isinstance(result.get("patch_execution_stage"), dict) else None
     if patch_execution_stage:
@@ -804,7 +842,7 @@ def _save_result_bundle(result: dict[str, Any], request_payload: dict[str, Any],
             "asset_matching_agent": str(RESULT_ROOT / "asset_matching_agent" / run_tag) if asset_stage else None,
             "risk_evaluation_agent": str(RESULT_ROOT / "risk_evaluation_agent" / run_tag) if risk_stage else None,
             "patch_impact_agent": str(RESULT_ROOT / "patch_impact_agent" / run_tag)
-            if any(stage is not None for stage in (patch_pre_stage, followup_stage, patch_final_stage))
+            if patch_stage is not None
             else None,
             "patch_execution_agent": str(RESULT_ROOT / "patch_execution_agent" / run_tag) if patch_execution_stage else None,
         },

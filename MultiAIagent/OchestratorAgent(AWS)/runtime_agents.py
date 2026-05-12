@@ -36,11 +36,10 @@ VULN_RISK_PAYLOAD_PATH = VULN_OUTPUT_DIR / "risk_assessment_payloads.json"
 VULN_OPERATIONAL_PAYLOAD_PATH = VULN_OUTPUT_DIR / "operational_impact_payloads.json"
 VULN_ASSET_MATCHING_PAYLOAD_PATH = VULN_OUTPUT_DIR / "asset_matching_payload.json"
 RISK_RESULT_PATH = RISK_OUTPUT_DIR / "risk_evaluation_result.json"
-PATCH_PRE_RESULT_PATH = PATCH_OUTPUT_DIR / "stage1_prejudge" / "patch_impact_prejudge_result.json"
-PATCH_FOLLOWUP_REQUEST_PATH = PATCH_OUTPUT_DIR / "stage2_followup" / "additional_asset_request.json"
-PATCH_FINAL_RESULT_PATH = PATCH_OUTPUT_DIR / "stage3_final" / "patch_impact_final_result.json"
+PATCH_CONTEXT_PATH = PATCH_OUTPUT_DIR / "patch_strategy_context.json"
+PATCH_ASSET_FACT_TRACE_PATH = PATCH_OUTPUT_DIR / "asset_fact_trace.json"
+PATCH_RESULT_PATH = PATCH_OUTPUT_DIR / "patch_strategy_result.json"
 PATCH_EXEC_RESULT_PATH = PATCH_EXEC_OUTPUT_DIR / "patch_execution_result.json"
-PATCH_FOLLOWUP_RESULT_PATH = SWARM_OUTPUT_DIR / "additional_asset_response.json"
 
 DEFAULT_REGION = "ap-northeast-2"
 DEFAULT_STACK_NAME = os.environ.get("CF_STACK_NAME", "megathon")
@@ -459,78 +458,38 @@ def run_patch_impact_agent(payload: dict[str, Any]) -> dict[str, Any]:
     if not runtime_arn:
         raise RuntimeError("PATCH_IMPACT_ARN 또는 patch_impact_runtime_arn 설정이 필요합니다.")
 
-    action = str(payload.get("action") or "evaluate_patch_impact").strip().lower()
+    action = str(payload.get("action") or "run_patch_strategy").strip().lower()
     region = str(payload.get("region") or DEFAULT_REGION)
     remote_result = _invoke_agentcore_runtime(runtime_arn, payload, region)
     if "error" in remote_result:
         raise RuntimeError(f"patch_impact_agent 호출 실패: {remote_result['error']}")
 
-    if action in {"evaluate_patch_impact", "bootstrap", "init"}:
+    if action in {"build_patch_strategy_context", "build_context"}:
         local_result = remote_result.get("result") if isinstance(remote_result.get("result"), dict) else remote_result
-        result_path = Path(payload.get("save_path") or PATCH_PRE_RESULT_PATH)
-        request_path = Path(payload.get("additional_request_path") or PATCH_FOLLOWUP_REQUEST_PATH)
-        additional_request = remote_result.get("additional_request") if isinstance(remote_result.get("additional_request"), dict) else {"requests": [], "request_count": 0}
-        if "request_count" not in additional_request:
-            requests = additional_request.get("requests")
-            additional_request["request_count"] = len(requests) if isinstance(requests, list) else 0
-        request_debug = remote_result.get("request_debug") if isinstance(remote_result.get("request_debug"), dict) else {}
-        _write_json(result_path, local_result)
-        _write_json(request_path, additional_request)
+        context_path = Path(payload.get("context_save_path") or payload.get("save_path") or PATCH_CONTEXT_PATH)
+        _write_json(context_path, local_result)
         return {
             "agent": "patch_impact_agent",
             "action": action,
             "status": "ok",
             "backend": "agentcore_runtime",
             "runtime_arn": runtime_arn,
-            "result_path": str(result_path),
-            "additional_request_path": str(request_path),
-            "request_debug": request_debug,
+            "context_path": str(context_path),
             "result": local_result,
         }
 
-    if action in {"run_patch_followup", "followup", "ask_asset_agent", "run_followup_conversation", "followup_conversation"}:
-        local_result = remote_result.get("result") if isinstance(remote_result.get("result"), dict) else remote_result
-        result_path = Path(payload.get("save_path") or PATCH_FOLLOWUP_RESULT_PATH)
-        _write_json(result_path, local_result)
-        return {
-            "agent": "patch_impact_agent",
-            "action": action,
-            "status": "ok",
-            "backend": "agentcore_runtime",
-            "runtime_arn": runtime_arn,
-            "result_path": str(result_path),
-            "result": local_result,
-        }
-
-    if action in {"finalize_patch_impact", "finalize"}:
-        local_result = remote_result.get("result") if isinstance(remote_result.get("result"), dict) else remote_result
-        result_path = Path(payload.get("save_path") or PATCH_FINAL_RESULT_PATH)
-        _write_json(result_path, local_result)
-        return {
-            "agent": "patch_impact_agent",
-            "action": action,
-            "status": "ok",
-            "backend": "agentcore_runtime",
-            "runtime_arn": runtime_arn,
-            "result_path": str(result_path),
-            "result": local_result,
-        }
-
-    if action in {"run_patch_impact_pipeline", "run_patch_impact", "pipeline"}:
+    if action in {"run_patch_strategy", "patch", "pipeline"}:
         local_result = remote_result if isinstance(remote_result, dict) else {}
-        prejudge_result = local_result.get("prejudge_result") if isinstance(local_result.get("prejudge_result"), dict) else {}
-        additional_request = local_result.get("additional_request") if isinstance(local_result.get("additional_request"), dict) else {"requests": [], "request_count": 0}
-        followup_stage = local_result.get("followup_stage") if isinstance(local_result.get("followup_stage"), dict) else {"responses": [], "response_count": 0}
+        strategy_context = local_result.get("strategy_context") if isinstance(local_result.get("strategy_context"), dict) else {}
+        asset_fact_trace = local_result.get("asset_fact_trace") if isinstance(local_result.get("asset_fact_trace"), dict) else {"responses": [], "response_count": 0}
         final_result = local_result.get("result") if isinstance(local_result.get("result"), dict) else {}
 
-        stage1_path = Path(payload.get("stage1_save_path") or PATCH_PRE_RESULT_PATH)
-        request_path = Path(payload.get("additional_request_path") or PATCH_FOLLOWUP_REQUEST_PATH)
-        followup_path = Path(payload.get("followup_save_path") or PATCH_FOLLOWUP_RESULT_PATH)
-        final_path = Path(payload.get("save_path") or PATCH_FINAL_RESULT_PATH)
+        context_path = Path(payload.get("context_save_path") or PATCH_CONTEXT_PATH)
+        asset_fact_trace_path = Path(payload.get("asset_fact_trace_path") or PATCH_ASSET_FACT_TRACE_PATH)
+        final_path = Path(payload.get("save_path") or PATCH_RESULT_PATH)
 
-        _write_json(stage1_path, prejudge_result)
-        _write_json(request_path, additional_request)
-        _write_json(followup_path, followup_stage)
+        _write_json(context_path, strategy_context)
+        _write_json(asset_fact_trace_path, asset_fact_trace)
         _write_json(final_path, final_result)
 
         return {
@@ -539,17 +498,15 @@ def run_patch_impact_agent(payload: dict[str, Any]) -> dict[str, Any]:
             "status": "ok",
             "backend": "agentcore_runtime",
             "runtime_arn": runtime_arn,
-            "stage1_result_path": str(stage1_path),
-            "additional_request_path": str(request_path),
-            "followup_result_path": str(followup_path),
+            "context_path": str(context_path),
+            "asset_fact_trace_path": str(asset_fact_trace_path),
             "result_path": str(final_path),
-            "prejudge_result": prejudge_result,
-            "additional_request": additional_request,
-            "followup_stage": followup_stage,
+            "strategy_context": strategy_context,
+            "asset_fact_trace": asset_fact_trace,
             "result": final_result,
         }
 
-    if action in {"query_patch_impact", "query"}:
+    if action in {"query_patch_strategy", "query"}:
         return {
             "agent": "patch_impact_agent",
             "action": action,

@@ -7,16 +7,12 @@ from pathlib import Path
 from typing import Any
 
 from pipeline_stages import (
-    PATCH_FINAL_RESULT_PATH,
-    PATCH_FOLLOWUP_REQUEST_PATH,
-    PATCH_FOLLOWUP_RESULT_PATH,
-    PATCH_PRE_RESULT_PATH,
+    PATCH_ASSET_FACT_TRACE_PATH,
+    PATCH_CONTEXT_PATH,
+    PATCH_RESULT_PATH,
     PIPELINE_RESULT_PATH,
     PATCH_EXEC_RESULT_PATH,
     run_asset_stage,
-    run_patch_finalize_stage,
-    run_patch_followup_stage,
-    run_patch_pre_stage,
     run_patch_stage,
     run_risk_stage,
     run_vuln_stage,
@@ -37,10 +33,8 @@ STAGE_ORDER = {
     "vuln": 1,
     "asset": 2,
     "risk": 3,
-    "patch_pre": 4,
-    "patch_followup": 5,
-    "patch_final": 6,
-    "patch_execution": 7,
+    "patch": 4,
+    "patch_execution": 5,
 }
 
 def _utc_now() -> str:
@@ -74,6 +68,7 @@ def _resolve_mode(payload: dict[str, Any]) -> str:
 
 
 def _build_config(payload: dict[str, Any]) -> dict[str, Any]:
+    raw_stop_stage = str(payload.get("stop_stage") or "").strip().lower() or None
     return {
         "mode": _resolve_mode(payload),
         "orchestration_style": "direct_pipeline",
@@ -87,18 +82,8 @@ def _build_config(payload: dict[str, Any]) -> dict[str, Any]:
         ).strip()
         or None,
         "allow_followup": bool(payload.get("allow_followup", True)),
-        "stop_stage": str(payload.get("stop_stage") or "").strip().lower() or None,
+        "stop_stage": raw_stop_stage,
     }
-
-
-def _load_followup_request_count() -> int:
-    if not PATCH_FOLLOWUP_REQUEST_PATH.exists():
-        return 0
-    try:
-        data = json.loads(PATCH_FOLLOWUP_REQUEST_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return 0
-    return int(data.get("request_count", 0))
 
 
 def _pick_payload_value(payload: dict[str, Any], key: str) -> Any:
@@ -173,43 +158,19 @@ def _seed_state(payload: dict[str, Any]) -> dict[str, Any]:
                 "result": risk_result,
             }
 
-    patch_pre_stage = _pick_payload_value(payload, "patch_pre_stage")
-    if isinstance(patch_pre_stage, dict):
-        if isinstance(patch_pre_stage.get("patch_pre_stage"), dict):
-            state["patch_pre_stage"] = patch_pre_stage["patch_pre_stage"]
-        elif "result" in patch_pre_stage:
-            state["patch_pre_stage"] = patch_pre_stage
+    patch_stage = _pick_payload_value(payload, "patch_stage")
+    if isinstance(patch_stage, dict):
+        if isinstance(patch_stage.get("patch_stage"), dict):
+            state["patch_stage"] = patch_stage["patch_stage"]
+        elif "result" in patch_stage:
+            state["patch_stage"] = patch_stage
     else:
-        prejudge_result = _pick_payload_value(payload, "prejudge_result")
-        if isinstance(prejudge_result, dict):
-            state["patch_pre_stage"] = {
+        patch_result = _pick_payload_value(payload, "patch_result") or _pick_payload_value(payload, "patch_strategy_result")
+        if isinstance(patch_result, dict):
+            state["patch_stage"] = {
                 "agent": "patch_impact_agent",
                 "status": "injected",
-                "result": prejudge_result,
-            }
-
-    followup_stage = (
-        _pick_payload_value(payload, "followup_stage")
-        or _pick_payload_value(payload, "followup_result")
-        or _pick_payload_value(payload, "additional_asset_context")
-    )
-    if isinstance(followup_stage, dict):
-        if isinstance(followup_stage.get("followup_stage"), dict):
-            state["followup_stage"] = followup_stage["followup_stage"]
-        else:
-            state["followup_stage"] = followup_stage
-
-    patch_final_stage = _pick_payload_value(payload, "patch_final_stage") or _pick_payload_value(payload, "patch_final_result")
-    if isinstance(patch_final_stage, dict):
-        if isinstance(patch_final_stage.get("patch_final_stage"), dict):
-            state["patch_final_stage"] = patch_final_stage["patch_final_stage"]
-        elif "result" in patch_final_stage:
-            state["patch_final_stage"] = patch_final_stage
-        else:
-            state["patch_final_stage"] = {
-                "agent": "patch_impact_agent",
-                "status": "injected",
-                "result": patch_final_stage,
+                "result": patch_result,
             }
 
     patch_execution_stage = _pick_payload_value(payload, "patch_execution_stage") or _pick_payload_value(payload, "patch_execution_result")
@@ -228,32 +189,6 @@ def _seed_state(payload: dict[str, Any]) -> dict[str, Any]:
     return state
 
 
-def _normalize_followup_request_payload(value: Any) -> dict[str, Any] | None:
-    if isinstance(value, dict):
-        if isinstance(value.get("requests"), list):
-            return {
-                "requests": value["requests"],
-                "request_count": int(value.get("request_count", len(value["requests"]))),
-            }
-        return None
-    if isinstance(value, list):
-        return {
-            "requests": value,
-            "request_count": len(value),
-        }
-    return None
-
-
-def _write_injected_followup_request(payload: dict[str, Any]) -> dict[str, Any] | None:
-    request_payload = _normalize_followup_request_payload(
-        _pick_payload_value(payload, "followup_request") or _pick_payload_value(payload, "additional_request")
-    )
-    if request_payload is None:
-        return None
-    _write_json(PATCH_FOLLOWUP_REQUEST_PATH, request_payload)
-    return request_payload
-
-
 def _record_count(payload: Any) -> int:
     if isinstance(payload, dict) and isinstance(payload.get("records"), list):
         return len(payload["records"])
@@ -263,7 +198,7 @@ def _record_count(payload: Any) -> int:
 
 
 def _build_pipeline_result(state: dict[str, Any], config: dict[str, Any], agent_message: str) -> dict[str, Any]:
-    patch_present = any(state.get(key) for key in ("patch_pre_stage", "followup_stage", "patch_final_stage"))
+    patch_present = bool(state.get("patch_stage"))
     pipeline = [
         "vuln_collector_agent" if state.get("vuln_stage") else None,
         "infra_matching_agent" if state.get("asset_stage") else None,
@@ -286,21 +221,18 @@ def _build_pipeline_result(state: dict[str, Any], config: dict[str, Any], agent_
             "asset_to_patch": ["infra_context"],
             "vuln_to_patch": ["operational_impact_payload"],
             "risk_to_patch": ["risk_evaluation_result"],
-            "patch_final_to_execution": ["patch_final_stage.result"],
+            "patch_to_execution": ["patch_stage.result"],
         },
         "agent_message": agent_message,
         "vuln_stage": state.get("vuln_stage"),
         "asset_stage": state.get("asset_stage"),
         "risk_stage": state.get("risk_stage"),
-        "patch_pre_stage": state.get("patch_pre_stage"),
-        "followup_stage": state.get("followup_stage"),
-        "patch_final_stage": state.get("patch_final_stage"),
+        "patch_stage": state.get("patch_stage"),
         "patch_execution_stage": state.get("patch_execution_stage"),
         "artifacts": {
-            "patch_pre_path": str(PATCH_PRE_RESULT_PATH),
-            "patch_followup_request_path": str(PATCH_FOLLOWUP_REQUEST_PATH),
-            "patch_followup_response_path": str(PATCH_FOLLOWUP_RESULT_PATH),
-            "patch_final_path": str(PATCH_FINAL_RESULT_PATH),
+            "patch_context_path": str(PATCH_CONTEXT_PATH),
+            "patch_asset_fact_trace_path": str(PATCH_ASSET_FACT_TRACE_PATH),
+            "patch_result_path": str(PATCH_RESULT_PATH),
             "patch_execution_path": str(PATCH_EXEC_RESULT_PATH),
             "pipeline_result_path": str(PIPELINE_RESULT_PATH),
         },
@@ -410,20 +342,17 @@ def run_patch_only(payload: dict[str, Any]) -> dict[str, Any]:
     config = _build_config(payload)
     state = _seed_state(payload)
     config["injected_state"] = list(state.keys())
-    if "patch_final_stage" not in state:
+    if "patch_stage" not in state:
         patch_stage = run_patch_stage(
             region=config["region"],
             infra_context=_resolve_infra_context(state, payload, field_name="infra_context"),
             risk_result=_resolve_risk_result(state, payload),
             operational_payload=_resolve_operational_payload(state, payload),
-            additional_asset_context=state.get("followup_stage"),
             infra_matching_runtime_arn=config["infra_matching_runtime_arn"],
             patch_impact_runtime_arn=config["patch_impact_runtime_arn"],
             allow_followup=config["allow_followup"],
         )
-        state["patch_pre_stage"] = patch_stage["patch_pre_stage"]
-        state["followup_stage"] = patch_stage["followup_stage"]
-        state["patch_final_stage"] = patch_stage["patch_final_stage"]
+        state["patch_stage"] = patch_stage["patch_stage"]
     return _build_pipeline_result(state, config, "patch_only 모드 실행 완료")
 
 
@@ -450,7 +379,6 @@ def run_patch_exec_only(payload: dict[str, Any]) -> dict[str, Any]:
 def run_orchestrator(payload: dict[str, Any]) -> dict[str, Any]:
     config = _build_config(payload)
     state = _seed_state(payload)
-    injected_request = _write_injected_followup_request(payload)
     config["injected_state"] = list(state.keys())
 
     stop_stage = config["stop_stage"]
@@ -480,52 +408,19 @@ def run_orchestrator(payload: dict[str, Any]) -> dict[str, Any]:
     if stop_stage == "risk":
         return _build_pipeline_result(state, config, "risk 단계까지 실행 완료")
 
-    if stop_stage == "patch_pre" and "patch_pre_stage" not in state:
-        state["patch_pre_stage"] = run_patch_pre_stage(
-            region=config["region"],
-            infra_context=_resolve_infra_context(state, payload, field_name="infra_context"),
-            risk_result=_resolve_risk_result(state, payload),
-            operational_payload=_resolve_operational_payload(state, payload),
-            patch_impact_runtime_arn=config["patch_impact_runtime_arn"],
-        )["patch_pre_stage"]
-    if stop_stage == "patch_pre":
-        return _build_pipeline_result(state, config, "patch_pre 단계까지 실행 완료")
-
-    request_count = int((injected_request or {}).get("request_count", _load_followup_request_count()))
-    if request_count > 0 and not config["allow_followup"]:
-        return _build_pipeline_result(state, config, "follow-up 비활성화로 patch_pre 에서 종료")
-
-    if (
-        stop_stage == "patch_followup"
-        and config["allow_followup"]
-        and request_count > 0
-        and "followup_stage" not in state
-    ):
-        state["followup_stage"] = run_patch_followup_stage(
-            region=config["region"],
-            infra_context=_resolve_infra_context(state, payload, field_name="infra_context"),
-            prejudge_result=state.get("patch_pre_stage", {}).get("result"),
-            requests=(injected_request or {}).get("requests"),
-            infra_matching_runtime_arn=config["infra_matching_runtime_arn"],
-            patch_impact_runtime_arn=config["patch_impact_runtime_arn"],
-        )["followup_stage"]
-    if stop_stage == "patch_followup":
-        return _build_pipeline_result(state, config, "patch_followup 단계까지 실행 완료")
-
-    if _should_execute(stop_stage, "patch_final") and "patch_final_stage" not in state:
+    if _should_execute(stop_stage, "patch") and "patch_stage" not in state:
         patch_stage = run_patch_stage(
             region=config["region"],
             infra_context=_resolve_infra_context(state, payload, field_name="infra_context"),
             risk_result=_resolve_risk_result(state, payload),
             operational_payload=_resolve_operational_payload(state, payload),
-            additional_asset_context=state.get("followup_stage"),
             infra_matching_runtime_arn=config["infra_matching_runtime_arn"],
             patch_impact_runtime_arn=config["patch_impact_runtime_arn"],
             allow_followup=config["allow_followup"],
         )
-        state["patch_pre_stage"] = patch_stage["patch_pre_stage"]
-        state["followup_stage"] = patch_stage["followup_stage"]
-        state["patch_final_stage"] = patch_stage["patch_final_stage"]
+        state["patch_stage"] = patch_stage["patch_stage"]
+    if stop_stage == "patch":
+        return _build_pipeline_result(state, config, "patch 단계까지 실행 완료")
 
     return _build_pipeline_result(state, config, "full/test 모드 실행 완료")
 

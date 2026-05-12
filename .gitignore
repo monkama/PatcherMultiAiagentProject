@@ -1,0 +1,8 @@
+.env
+.pycache_tmp/
+**/__pycache__/
+
+MultiAIagent/OchestraResult/
+MultiAIagent/Conversationlog/
+
+MultiAIagent/**/build/

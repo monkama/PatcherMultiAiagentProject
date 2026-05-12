@@ -18,10 +18,9 @@ PATCH_EXEC_OUTPUT_DIR = RUNTIME_ROOT / "OutputResult" / "PatchExecAgent"
 SWARM_OUTPUT_DIR = RUNTIME_ROOT / "OutputResult" / "SwarmAgent"
 
 PIPELINE_RESULT_PATH = SWARM_OUTPUT_DIR / "pipeline_result.json"
-PATCH_FOLLOWUP_RESULT_PATH = SWARM_OUTPUT_DIR / "additional_asset_response.json"
-PATCH_PRE_RESULT_PATH = PATCH_OUTPUT_DIR / "stage1_prejudge" / "patch_impact_prejudge_result.json"
-PATCH_FOLLOWUP_REQUEST_PATH = PATCH_OUTPUT_DIR / "stage2_followup" / "additional_asset_request.json"
-PATCH_FINAL_RESULT_PATH = PATCH_OUTPUT_DIR / "stage3_final" / "patch_impact_final_result.json"
+PATCH_CONTEXT_PATH = PATCH_OUTPUT_DIR / "patch_strategy_context.json"
+PATCH_ASSET_FACT_TRACE_PATH = PATCH_OUTPUT_DIR / "asset_fact_trace.json"
+PATCH_RESULT_PATH = PATCH_OUTPUT_DIR / "patch_strategy_result.json"
 ASSET_INFRA_CONTEXT_PATH = ASSET_OUTPUT_DIR / "infra_context.json"
 VULN_RAW_OUTPUT_PATH = VULN_OUTPUT_DIR / "focused_selected_raw_cves.json"
 VULN_RISK_PAYLOAD_PATH = VULN_OUTPUT_DIR / "risk_assessment_payloads.json"
@@ -42,10 +41,6 @@ def _load_json(path: Path, default: Any) -> Any:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return default
-
-
-def _load_followup_request(path: Path | None = None) -> dict[str, Any]:
-    return _load_json(path or PATCH_FOLLOWUP_REQUEST_PATH, {"requests": [], "request_count": 0})
 
 
 def run_vuln_stage(*, cve_ids: list[str] | None = None) -> dict[str, Any]:
@@ -113,100 +108,12 @@ def run_risk_stage(
     }
 
 
-def run_patch_pre_stage(
-    *,
-    region: str,
-    infra_context: dict[str, Any] | None = None,
-    risk_result: dict[str, Any] | list[Any] | None = None,
-    operational_payload: dict[str, Any] | None = None,
-    patch_impact_runtime_arn: str | None = None,
-) -> dict[str, Any]:
-    resolved_infra_context = infra_context if isinstance(infra_context, dict) else _load_json(ASSET_INFRA_CONTEXT_PATH, {})
-    resolved_risk_result = risk_result if isinstance(risk_result, (dict, list)) else _load_json(RISK_RESULT_PATH, {})
-    resolved_operational_payload = operational_payload if isinstance(operational_payload, dict) else _load_json(VULN_OPERATIONAL_PAYLOAD_PATH, {})
-    patch_pre_stage = run_agent("patch_impact_agent", {
-        "action": "evaluate_patch_impact",
-        "region": region,
-        "patch_impact_runtime_arn": patch_impact_runtime_arn,
-        "infra_context": resolved_infra_context,
-        "risk_result": resolved_risk_result,
-        "operational_payload": resolved_operational_payload,
-        "debug_risk_result_count_hint": len(resolved_risk_result) if isinstance(resolved_risk_result, list) else len(resolved_risk_result.get("records", [])) if isinstance(resolved_risk_result, dict) and isinstance(resolved_risk_result.get("records"), list) else 0,
-        "debug_infra_asset_count_hint": len(resolved_infra_context.get("assets", [])) if isinstance(resolved_infra_context, dict) and isinstance(resolved_infra_context.get("assets"), list) else 0,
-        "save_path": str(PATCH_PRE_RESULT_PATH),
-        "additional_request_path": str(PATCH_FOLLOWUP_REQUEST_PATH),
-    })
-    return {
-        "agent": "orchestrator_pipeline",
-        "stage": "patch_pre",
-        "generated_at": _utc_now(),
-        "patch_pre_stage": patch_pre_stage,
-    }
-
-
-def run_patch_followup_stage(
-    *,
-    region: str,
-    infra_context: dict[str, Any] | None = None,
-    prejudge_result: dict[str, Any] | None = None,
-    requests: list[dict[str, Any]] | None = None,
-    infra_matching_runtime_arn: str | None = None,
-    patch_impact_runtime_arn: str | None = None,
-) -> dict[str, Any]:
-    additional_request = {"requests": requests, "request_count": len(requests)} if isinstance(requests, list) else _load_followup_request()
-    patch_followup_stage = run_agent("patch_impact_agent", {
-        "action": "run_patch_followup",
-        "region": region,
-        "patch_impact_runtime_arn": patch_impact_runtime_arn,
-        "infra_matching_runtime_arn": infra_matching_runtime_arn,
-        "prejudge_result": prejudge_result if isinstance(prejudge_result, dict) else {},
-        "infra_context": infra_context if isinstance(infra_context, dict) else _load_json(ASSET_INFRA_CONTEXT_PATH, {}),
-        "requests": additional_request.get("requests", []) if isinstance(additional_request.get("requests"), list) else [],
-        "save_path": str(PATCH_FOLLOWUP_RESULT_PATH),
-    })
-    final_payload = patch_followup_stage.get("result") if isinstance(patch_followup_stage.get("result"), dict) else {}
-    return {
-        "agent": "orchestrator_pipeline",
-        "stage": "patch_followup",
-        "generated_at": _utc_now(),
-        "followup_stage": final_payload,
-    }
-
-
-def run_patch_finalize_stage(
-    *,
-    region: str,
-    infra_context: dict[str, Any] | None = None,
-    prejudge_result: dict[str, Any] | None = None,
-    additional_asset_context: dict[str, Any] | None = None,
-    infra_matching_runtime_arn: str | None = None,
-    patch_impact_runtime_arn: str | None = None,
-) -> dict[str, Any]:
-    patch_final_stage = run_agent("patch_impact_agent", {
-        "action": "finalize_patch_impact",
-        "region": region,
-        "patch_impact_runtime_arn": patch_impact_runtime_arn,
-        "infra_matching_runtime_arn": infra_matching_runtime_arn,
-        "infra_context": infra_context if isinstance(infra_context, dict) else _load_json(ASSET_INFRA_CONTEXT_PATH, {}),
-        "prejudge_result": prejudge_result if isinstance(prejudge_result, dict) else _load_json(PATCH_PRE_RESULT_PATH, {}),
-        "additional_asset_context": additional_asset_context if isinstance(additional_asset_context, dict) else _load_json(PATCH_FOLLOWUP_RESULT_PATH, {}),
-        "save_path": str(PATCH_FINAL_RESULT_PATH),
-    })
-    return {
-        "agent": "orchestrator_pipeline",
-        "stage": "patch_final",
-        "generated_at": _utc_now(),
-        "patch_final_stage": patch_final_stage,
-    }
-
-
 def run_patch_stage(
     *,
     region: str,
     infra_context: dict[str, Any] | None = None,
     risk_result: dict[str, Any] | list[Any] | None = None,
     operational_payload: dict[str, Any] | None = None,
-    additional_asset_context: dict[str, Any] | None = None,
     infra_matching_runtime_arn: str | None = None,
     patch_impact_runtime_arn: str | None = None,
     allow_followup: bool = True,
@@ -214,10 +121,9 @@ def run_patch_stage(
     resolved_infra_context = infra_context if isinstance(infra_context, dict) else _load_json(ASSET_INFRA_CONTEXT_PATH, {})
     resolved_risk_result = risk_result if isinstance(risk_result, (dict, list)) else _load_json(RISK_RESULT_PATH, {})
     resolved_operational_payload = operational_payload if isinstance(operational_payload, dict) else _load_json(VULN_OPERATIONAL_PAYLOAD_PATH, {})
-    resolved_additional_asset_context = additional_asset_context if isinstance(additional_asset_context, dict) else {}
 
     patch_stage = run_agent("patch_impact_agent", {
-        "action": "run_patch_impact_pipeline",
+        "action": "run_patch_strategy",
         "region": region,
         "patch_impact_runtime_arn": patch_impact_runtime_arn,
         "infra_matching_runtime_arn": infra_matching_runtime_arn,
@@ -225,34 +131,15 @@ def run_patch_stage(
         "infra_context": resolved_infra_context,
         "risk_result": resolved_risk_result,
         "operational_payload": resolved_operational_payload,
-        "additional_asset_context": resolved_additional_asset_context,
-        "stage1_save_path": str(PATCH_PRE_RESULT_PATH),
-        "additional_request_path": str(PATCH_FOLLOWUP_REQUEST_PATH),
-        "followup_save_path": str(PATCH_FOLLOWUP_RESULT_PATH),
-        "save_path": str(PATCH_FINAL_RESULT_PATH),
+        "context_save_path": str(PATCH_CONTEXT_PATH),
+        "asset_fact_trace_path": str(PATCH_ASSET_FACT_TRACE_PATH),
+        "save_path": str(PATCH_RESULT_PATH),
     })
-    status = str(patch_stage.get("status") or "ok")
-    prejudge_result = patch_stage.get("prejudge_result") if isinstance(patch_stage.get("prejudge_result"), dict) else {}
-    additional_request = patch_stage.get("additional_request") if isinstance(patch_stage.get("additional_request"), dict) else {"requests": [], "request_count": 0}
-    followup_stage = patch_stage.get("followup_stage") if isinstance(patch_stage.get("followup_stage"), dict) else {"responses": [], "response_count": 0}
-    final_result = patch_stage.get("result") if isinstance(patch_stage.get("result"), dict) else {}
     return {
         "agent": "orchestrator_pipeline",
         "stage": "patch",
         "generated_at": _utc_now(),
         "patch_stage": patch_stage,
-        "patch_pre_stage": {
-            "agent": "patch_impact_agent",
-            "status": status,
-            "result": prejudge_result,
-            "additional_request": additional_request,
-        },
-        "followup_stage": followup_stage,
-        "patch_final_stage": {
-            "agent": "patch_impact_agent",
-            "status": status,
-            "result": final_result,
-        },
     }
 
 
@@ -264,7 +151,7 @@ def run_patch_execution_stage(
     patch_execution_runtime_arn: str | None = None,
 ) -> dict[str, Any]:
 
-    resolved_impact_data = impact_data if isinstance(impact_data, dict) else _load_json(PATCH_FINAL_RESULT_PATH, {})
+    resolved_impact_data = impact_data if isinstance(impact_data, dict) else _load_json(PATCH_RESULT_PATH, {})
 
     patch_execution_stage = run_agent("patch_execution_agent", {
         "action": "execute_patch",

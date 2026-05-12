@@ -7,7 +7,7 @@
 1. 오케스트라는 얇은 순차 파이프라인입니다.
 2. 실제 실행은 보통 `run_orchestrator_runtime.py`로 합니다.
 3. 결과는 `OchestraResult`에 저장됩니다.
-4. `patch -> asset` follow-up 대화 로그는 `Conversationlog/PatchToAsset`에 저장됩니다.
+4. `patch -> asset` 직접 사실 확인 대화 로그는 `Conversationlog/PatchToAsset`에 저장됩니다.
 
 지금 구조는 예전처럼 스웜 실험 위주가 아니라, 실제 AgentCore runtime들을 안정적으로 호출하고 디버깅하기 쉽게 정리된 상태입니다.
 
@@ -28,7 +28,7 @@ vuln_collector -> asset_matching -> risk_evaluation -> patch_impact
 - `risk_evaluation`
   취약점과 자산 컨텍스트를 합쳐 위험도를 계산합니다.
 - `patch_impact`
-  실제 패치 시 운영 영향, 의존성, follow-up 질문, 최종 조치 방향을 판단합니다.
+  위험도 기반으로 패치 전략을 판단하고, 정보가 부족하면 asset agent에 직접 기술 사실을 물어 최종 조치를 정합니다.
 
 현재 오케스트라는 이 단계를 순서대로 이어주는 허브입니다.
 즉 지금 버전의 오케스트라는 "대화형 스웜 조율기"라기보다 "얇은 실행 파이프라인 + 테스트 실행기"에 가깝습니다.
@@ -96,11 +96,11 @@ vuln_collector -> asset_matching -> risk_evaluation -> patch_impact
 ┌─────────────────────────────────────────┐
 │         patch_impact_agent              │
 │                                         │
-│  1. patch pre 판단                      │
-│  2. 필요 시 asset follow-up 질문        │
-│  3. patch final 판단                    │
+│  1. risk + infra + operational 종합     │
+│  2. 부족한 기술 사실만 asset에 질문      │
+│  3. 최종 patch strategy 결과 생성       │
 │                                         │
-│  반환: patch_final_result               │
+│  반환: patch_strategy_result            │
 └─────────────────────────────────────────┘
 ```
 
@@ -111,9 +111,7 @@ vuln_collector -> asset_matching -> risk_evaluation -> patch_impact
 | vuln | `vuln_collector_agent` | 별도 단계 입력 없음 | `raw_result`, `risk_assessment_payload`, `operational_impact_payload`, `asset_matching_payload` | asset, risk, patch |
 | asset | `infra_matching_agent` | `stack_name`, `region`, `asset_matching_payload` | `infra_context` | risk, patch |
 | risk | `risk_evaluation_agent` | `region`, `infra_context`, `risk_assessment_payload` | `risk_result` | patch |
-| patch pre | `patch_impact_agent` | `region`, `infra_context`, `risk_result`, `operational_payload` | `prejudge_result`, `additional_request` | patch followup, patch final |
-| patch followup | `patch_impact_agent` | `region`, `infra_context`, `prejudge_result`, `requests` | `additional_asset_context` | patch final |
-| patch final | `patch_impact_agent` | `region`, `prejudge_result`, `additional_asset_context` | `patch_final_result` | 최종 응답 |
+| patch | `patch_impact_agent` | `region`, `infra_context`, `risk_result`, `operational_payload` | `patch_strategy_result` | 최종 응답 |
 
 표에서 자주 나오는 값은 아래처럼 이해하면 됩니다.
 
@@ -123,10 +121,7 @@ vuln_collector -> asset_matching -> risk_evaluation -> patch_impact
 - `asset_matching_payload`: asset 단계가 어떤 자산을 볼지 판단할 때 쓰는 기준 payload입니다.
 - `infra_context`: 실제 인프라, 인스턴스, 소프트웨어, 네트워크 정보를 모아둔 컨텍스트입니다.
 - `risk_result`: risk 단계가 계산한 위험도 평가 결과입니다.
-- `prejudge_result`: patch 1차 판단 결과입니다.
-- `additional_request`: patch가 asset에 추가 확인이 필요하다고 판단한 질문 요청 묶음입니다.
-- `additional_asset_context`: follow-up 질문에 대한 asset 응답 묶음입니다.
-- `patch_final_result`: patch 단계의 최종 판단 결과입니다.
+- `patch_strategy_result`: patch 단계의 최종 판단 결과입니다.
 
 ## 폴더 구조
 
@@ -162,7 +157,7 @@ MultiAIagent/
 현재 성격:
 
 - 얇은 순차 파이프라인
-- `full`, `vuln_only`, `asset_only`, `risk_only`, `patch_only`, `test` 지원
+- `full`, `vuln_only`, `asset_only`, `risk_only`, `patch_only`, `test`, `patch_exec_only` 지원
 - 앞 단계 결과를 다음 단계로 넘기는 역할 담당
 
 ### `VulnCollectorAgent(AWS)`
@@ -197,11 +192,7 @@ MultiAIagent/
 - `runtime_app.py`
   patch runtime 진입점
 - `patch_runtime/patch_actions.py`
-  patch 1차 판단
-- `patch_runtime/followup_actions.py`
-  patch -> asset follow-up 질문/응답 처리
-- `patch_runtime/finalize_patch.py`
-  최종 판단
+  patch 전략 planner 본체
 - `container_server.py`
   AgentCore container runtime용 HTTP wrapper
 - `Dockerfile`
@@ -211,13 +202,14 @@ MultiAIagent/
 - `deploy_container_runtime.sh`
   AgentCore container runtime update
 
-현재 patch follow-up은 다음 구조입니다.
+현재 patch는 `patch_actions.py` 한 파일 안에서 아래를 모두 처리합니다.
 
-- patch pre가 추가 질문 필요 여부 판단
-- asset runtime에 사실 확인 질문 전송
-- 응답을 patch final에 반영
+- 4개 입력 자료(`risk_result`, `infra_context`, `operational_payload`, 기존 asset fact trace`)를 직접 읽음
+- 최종 출력 스키마를 채우려 함
+- 부족한 필드가 있으면 `query_asset_fact` tool로 asset runtime에 직접 기술 사실 질문
+- 응답을 반영해 최종 `patch_strategy_result` 생성
 
-즉 지금 실제 "에이전트 간 대화"에 제일 가까운 구간은 `patch -> asset` 입니다.
+즉 지금 실제 "에이전트 간 대화"에 제일 가까운 구간은 `patch -> asset` 직접 사실 확인입니다.
 
 ## 배포 방식 요약
 
@@ -268,7 +260,7 @@ MultiAIagent/
 -> 오케스트라가 하위 runtime들 호출
 ```
 
-즉 `vuln_only`, `asset_only`, `risk_only`, `patch_only`, `full`, `test` 모두 기본 원리는 같습니다.
+즉 `vuln_only`, `asset_only`, `risk_only`, `patch_only`, `full`, `test`, `patch_exec_only` 모두 기본 원리는 같습니다.
 
 차이는 오케스트라가 내부에서 어디까지 호출하느냐입니다.
 
@@ -284,6 +276,8 @@ MultiAIagent/
   vuln -> asset -> risk -> patch 전체 호출
 - `test`
   `test_inputs`와 `stop_stage` 기준으로 필요한 단계까지만 호출
+- `patch_exec_only`
+  patch execution runtime만 호출
 
 ### `.env` 탐색 방식
 
@@ -314,19 +308,39 @@ pip install boto3 python-dotenv
 
 ### 필요한 `.env`
 
-로컬 실행기 기준으로 가장 중요한 값은 AWS 자격증명입니다.
+로컬 실행기와 각 runtime 호출 기준으로 아래 값들을 준비하는 것이 좋습니다.
 
-예:
+필수:
 
 ```env
 AWS_ACCESS_KEY_ID=...
 AWS_SECRET_ACCESS_KEY=...
 AWS_DEFAULT_REGION=ap-northeast-2
+
+ORCHESTRATOR_AGENTCORE_ARN=arn:aws:bedrock-agentcore:ap-northeast-2:...:runtime/orchestrator_agent-...
+INFRA_MATCHING_AGENTCORE_ARN=arn:aws:bedrock-agentcore:ap-northeast-2:...:runtime/asset_matching_agent-...
+VULN_COLLECTOR_AGENTCORE_ARN=arn:aws:bedrock-agentcore:ap-northeast-2:...:runtime/vuln_collector_agent-...
+RISK_EVAL_AGENTCORE_ARN=arn:aws:bedrock-agentcore:ap-northeast-2:...:runtime/risk_evaluation_agent-...
+PATCH_IMPACT_AGENTCORE_ARN=arn:aws:bedrock-agentcore:ap-northeast-2:...:runtime/patch_impact_container-...
+PATCH_EXECUTION_AGENTCORE_ARN=arn:aws:bedrock-agentcore:ap-northeast-2:...:runtime/patch_exec_agent-...
+```
+
+선택:
+
+```env
+BEDROCK_MODEL_ID=global.anthropic.claude-haiku-4-5-20251001-v1:0
+PATCH_IMPACT_BEDROCK_MODEL=global.anthropic.claude-haiku-4-5-20251001-v1:0
+
+PATCH_MAX_FOLLOWUPS_PER_RECORD=8
+PATCH_MAX_RECORD_WALL_TIME_SECONDS=240
+PATCH_MAX_TOTAL_WALL_TIME_SECONDS=900
 ```
 
 참고:
 
-- 로컬 실행기 자체는 AWS runtime 호출용 자격증명이 가장 중요함
+- `PATCH_EXECUTION_ARN`은 `PATCH_EXECUTION_AGENTCORE_ARN`의 alias로도 읽습니다.
+- `BEDROCK_MODEL_ID`는 공통 기본값이고, `PATCH_IMPACT_BEDROCK_MODEL`이 있으면 patch runtime에서 우선 사용합니다.
+- patch 질문 제한은 기본값이 이미 들어 있으므로 필요할 때만 override 하면 됩니다.
 
 ### 실행 명령
 
@@ -353,6 +367,7 @@ AWS_DEFAULT_REGION=ap-northeast-2
 4. `risk_only`
 5. `patch_only`
 6. `test`
+7. `patch_exec_only`
 
 ### 모드별 입력
 
@@ -386,9 +401,11 @@ AWS_DEFAULT_REGION=ap-northeast-2
 - `risk_evaluation_result.json`
 - `operational_impact_payloads.json`
 
-추가 옵션:
+참고:
 
-- follow-up 질문까지 실행할지 마지막에 한 번 더 확인
+- patch는 이제 `pre/followup/final` 외부 단계를 나누지 않습니다.
+- `patch_impact_agent`가 위 3개 입력을 한 번에 읽고, 부족한 direct technical fact만 asset agent에 직접 질문합니다.
+- 최종 산출물은 `patch_strategy_result.json` 하나를 기준으로 보면 됩니다.
 
 #### `test`
 
@@ -396,12 +413,10 @@ AWS_DEFAULT_REGION=ap-northeast-2
 
 예:
 
-- `stop_stage = patch_pre`
-  patch 1차 판단까지만 확인
-- `stop_stage = patch_followup`
-  follow-up 응답까지 확인
-- `stop_stage = patch_final`
-  patch 최종 판단까지 확인
+- `stop_stage = patch`
+  patch 단계까지 확인
+- `stop_stage = patch_execution`
+  patch execution 단계까지 확인
 
 중요:
 
@@ -438,12 +453,13 @@ OchestraResult/
 
 - `OchestraResult/orchestrator_agent/<run_tag>/response.json`
   오케스트라 최종 응답입니다. 실행 모드, pipeline, 각 stage 결과가 한 번에 들어 있습니다.
-- `OchestraResult/patch_impact_agent/<run_tag>/patch_impact_prejudge_result.json`
-  patch 1차 판단 결과입니다. 어떤 CVE/자산 조합을 문제로 봤는지, 추가 질문이 필요한지 먼저 확인할 때 봅니다.
-- `OchestraResult/patch_impact_agent/<run_tag>/additional_asset_response.json`
-  patch가 asset에 추가로 물어본 follow-up 응답 묶음입니다. 실제 질문과 자산 응답이 어떻게 들어왔는지 확인할 때 봅니다.
-- `OchestraResult/patch_impact_agent/<run_tag>/patch_impact_final_result.json`
-  patch 최종 결과입니다. 최종 영향도 판단, 근거, 권장 조치 방향을 확인할 때 봅니다.
+- `OchestraResult/patch_impact_agent/<run_tag>/patch_strategy_result.json`
+  patch 최종 결과입니다. 최종 패치 전략, 근거, 선택된 조치를 확인할 때 봅니다.
+
+중요:
+
+- 지금 기준으로 사람이 최종 판단을 볼 때는 `patch_strategy_result.json` 하나를 보면 됩니다.
+- `patch_strategy_context`나 `asset_fact_trace`는 디버그 용도이며, 결과 해석의 1차 기준은 아닙니다.
 
 ### 왜 중요하나
 
@@ -463,13 +479,12 @@ OchestraResult/
 
 - `MultiAIagent/Conversationlog/PatchToAsset`
 
-이 폴더는 patch -> asset follow-up 대화 로그 저장소입니다.
+이 폴더는 patch -> asset 직접 사실 확인 대화 로그 저장소입니다.
 
 생성 조건:
 
 - `patch_only` 또는 `full` 실행 중
-- patch pre가 추가 질문을 생성하고
-- 실제 follow-up이 발생한 경우
+- patch planner가 어떤 필드를 채우기에 근거가 부족하다고 판단해 asset에 직접 질문한 경우
 
 저장 구조:
 
@@ -478,12 +493,12 @@ Conversationlog/PatchToAsset/
 ├── latest.json
 └── <run_tag>/
     ├── conversation_log.json
-    ├── followup-xxxx.json
-    ├── followup-yyyy.json
+    ├── CVE-...__i-....json
+    ├── CVE-...__i-....json
     └── ...
 ```
 
-`conversation_log.json`에는 전체 묶음이 들어가고, 개별 `followup-*.json`에는 request 단위 대화가 저장됩니다.
+`conversation_log.json`에는 전체 묶음이 들어가고, 개별 `CVE-...__i-....json`에는 request 단위 대화가 저장됩니다.
 
 주요 필드 예시:
 
@@ -523,6 +538,7 @@ Conversationlog/PatchToAsset/
 - `risk_only`
 - `patch_only`
 - `test`
+- `patch_exec_only`
 
 3. 결과 저장 체계가 강화됨
 
@@ -547,3 +563,4 @@ Conversationlog/PatchToAsset/
 - 실행은 보통 `run_orchestrator_runtime.py`로 한다.
 - 최근 결과는 `OchestraResult`를 본다.
 - patch -> asset 대화는 `Conversationlog/PatchToAsset`를 본다.
+- patch 최종 결론은 `patch_strategy_result.json`의 `selected_action`, `decision`, `reason_summary`를 우선 보면 된다.
