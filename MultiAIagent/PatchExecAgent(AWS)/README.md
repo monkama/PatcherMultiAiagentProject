@@ -36,6 +36,34 @@ graph LR
 * **연결 구조:** Slack Webhook URL -> API Gateway -> AWS Lambda -> Patch Exec Agent
 * **Lambda 도입 이유:** 관리자 승인 프로세스에서 대기 중인 **동작이 끝난 에이전트를 다시 깨우기 위한 용도(Wake-up)**로 Lambda를 사용했습니다. 이를 통해 에이전트를 항시 구동할 필요 없이 이벤트 기반으로만 동작하게 하여 리소스 효율성을 극대화했습니다.
 
+##  시스템 연동 및 상세 설정 (Integration Details)
+
+각 컴포넌트가 어떻게 데이터를 주고받으며 자동화 파이프라인을 구성하는지, 구체적인 설정값과 연결 방식을 설명합니다.
+
+### 1. Slack App 설정 (Interactivity)
+관리자가 슬랙 리포트 메시지에서 [승인] 버튼을 클릭했을 때 이벤트를 발생시키기 위한 설정입니다.
+* **설정 위치:** Slack API Dashboard > Features > **Interactivity & Shortcuts**
+* **Interactivity 활성화 (On):** 해당 기능을 켜면 버튼 클릭 이벤트를 받을 곳을 지정할 수 있습니다.
+* **Request URL 설정:** 이곳에 하단에서 생성한 **API Gateway의 Invoke URL**을 입력합니다.
+* **동작 원리:** 관리자가 버튼을 누르면, Slack은 이 URL을 향해 버튼 액션 정보, 사용자 정보 등이 담긴 데이터를 `POST` 방식으로 전송합니다.
+
+### 2. AWS API Gateway 설정 (Webhook 수신 엔드포인트)
+Slack이 보내는 POST 요청을 안전하게 받아내어 백엔드로 넘기는 대문 역할을 합니다.
+* **API 구성:** HTTP API (또는 REST API) 형태로 생성하여 `POST` 메서드를 오픈합니다.
+* **통합(Integration) 설정:** 수신한 요청을 처리할 타겟으로 **AWS Lambda 함수**를 지정합니다. (Lambda 프록시 통합 사용)
+* **데이터 흐름:** Slack은 데이터를 `application/x-www-form-urlencoded` 형식의 `payload`라는 파라미터에 JSON을 담아 보냅니다. API Gateway는 이 데이터를 그대로 Lambda에게 넘겨주는 라우팅 역할을 수행합니다.
+
+### 3. AWS Lambda 설정 (Agent Wake-up 및 승인 처리)
+API Gateway로부터 데이터를 넘겨받아 실제 로직을 수행하고 에이전트를 깨우는 핵심 브릿지입니다.
+* **Payload 파싱:** URL 인코딩된 Slack의 데이터를 디코딩하여 JSON 객체로 변환한 뒤, 클릭된 버튼의 Value(승인/거절)를 추출합니다.
+* **Agent Wake-up (실행 트리거):** 버튼 클릭이 '승인'으로 확인되면, Lambda는 대기 상태에 있는 `Patch_exec_agent`를 실행시킵니다. 
+  *(에이전트 구동 환경에 따라 지정된 Agent API Endpoint를 호출하거나, SQS 큐에 메시지를 전송하여 에이전트가 이를 읽고 실행되도록 트리거합니다.)*
+* **빠른 응답(200 OK):** Slack API는 3초 이내에 서버 응답이 없으면 에러를 발생시키므로, Lambda는 에이전트 실행 명령만 내린 뒤 즉시 Slack 측에 `HTTP 200 OK`를 반환하여 프로세스를 종료합니다.
+
+### 4. Patch Exec Agent (SSM 패치 실행)
+* Lambda에 의해 깨어난(Wake-up) 에이전트는 사전에 전달받은 분석 결과(대상 서버 ID, 취약점 정보)를 바탕으로 **AWS Systems Manager (SSM)**의 `Send-Command`를 호출합니다.
+* 패치를 수행하는 동안 내부 코드에 작성된 Webhook URL(`https://hooks.slack.com/services/...`)을 통해 실시간 진행 로그를 슬랙 스레드에 스트리밍합니다.
+
 ### 슬랙 메시지 화면 구성
 슬랙 인터페이스는 단계별로 명확한 정보를 제공하도록 구성되었습니다.
 * **초기 정보 메시지:** 패치 대상 서버의 인스턴스 정보와 적용될 패치 내역을 요약하여 보여줍니다.
