@@ -53,10 +53,9 @@ Slack이 보내는 POST 요청을 안전하게 받아내어 백엔드로 넘기�
 
 ### 3. AWS Lambda 설정 (Agent Wake-up 및 승인 처리)
 API Gateway로부터 데이터를 넘겨받아 실제 로직을 수행하고 에이전트를 깨우는 핵심 브릿지입니다.
-* **Payload 파싱:** URL 인코딩된 Slack의 데이터를 디코딩하여 JSON 객체로 변환한 뒤, 클릭된 버튼의 Value(승인/거절)를 추출합니다.
-* **Agent Wake-up (실행 트리거):** 버튼 클릭이 '승인'으로 확인되면, Lambda는 대기 상태에 있는 `Patch_exec_agent`를 실행시킵니다. 
-  *(에이전트 구동 환경에 따라 지정된 Agent API Endpoint를 호출하거나, SQS 큐에 메시지를 전송하여 에이전트가 이를 읽고 실행되도록 트리거합니다.)*
-* **빠른 응답(200 OK):** Slack API는 3초 이내에 서버 응답이 없으면 에러를 발생시키므로, Lambda는 에이전트 실행 명령만 내린 뒤 즉시 Slack 측에 `HTTP 200 OK`를 반환하여 프로세스를 종료합니다.
+* **Payload 파싱:** URL 인코딩된 Slack의 데이터를 디코딩하여 JSON 객체로 변환한 뒤, 클릭된 버튼의 Value를 추출합니다.
+* **Agent Wake-up (실행 트리거):** 버튼 클릭이 확인되면, Lambda는 대기 상태에 있는 `Patch_exec_agent`를 실행시킵니다. 
+* **Timeout 설정 변경:** 안정적인 에이전트 트리거 및 연동 처리를 위해 Lambda 함수의 기본 실행 제한 시간(Timeout)을 3초에서 1분으로 연장하여 설정했습니다.
 
 ### 4. Patch Exec Agent (SSM 패치 실행)
 * Lambda에 의해 깨어난(Wake-up) 에이전트는 사전에 전달받은 분석 결과(대상 서버 ID, 취약점 정보)를 바탕으로 **AWS Systems Manager (SSM)**의 `Send-Command`를 호출합니다.
