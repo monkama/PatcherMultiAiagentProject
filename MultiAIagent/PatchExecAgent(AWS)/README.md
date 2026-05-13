@@ -4,29 +4,19 @@
 
 ## 동작 프로세스 (Architecture)
 
-본 에이전트는 선행 에이전트의 결과물을 바탕으로, 설정에 따라 **자동 패치 프로세스** 또는 **관리자 승인 기반 프로세스**로 나뉘어 동작합니다.
+본 에이전트는 선행 에이전트의 분석 직후 대상 서버 정보를 슬랙에 우선 출력하며, 설정에 따라 **자동 패치 프로세스** 또는 **관리자 승인 기반 프로세스**로 나뉘어 동작합니다.
 
 ```mermaid
 graph LR
-    %% 노드 정의 (색상 제거 및 좌우 배치)
-    IA([Patch Impact Agent 결과물])
+    IA([Patch Impact Agent 완료]) --> InitSlack[초기 슬랙 출력: 패치 대상 서버 정보]
     
-    Admin[관리자 슬랙 확인 및 승인]
-    API[API Gateway]
-    Lambda[AWS Lambda]
+    InitSlack -->|자동 패치 프로세스| EA[Patch Exec Agent 실행]
     
-    EA[Patch Exec Agent]
-    SSM[AWS Systems Manager]
-    SlackOut([실시간 슬랙 출력])
-
-    %% 흐름 정의
-    IA -->|자동 패치 프로세스| EA
-    
-    IA -->|승인 필요 시 대기| Admin
-    Admin -->|Webhook 호출| API
-    API -->|Trigger| Lambda
+    InitSlack -->|승인 대기 프로세스| Admin[관리자 확인 및 승인 버튼 클릭]
+    Admin -->|Webhook| API[API Gateway]
+    API --> Lambda[AWS Lambda]
     Lambda -->|Agent Wake-up| EA
-
-    %% 공통 실행 흐름
-    EA -->|명령어 전달| SSM
-    SSM -->|실행 로그 스트리밍| SlackOut
+    
+    EA --> SSM[SSM 접속 및 패치 실행]
+    SSM --> RealTimeSlack[실시간 슬랙 출력: 패치 로그]
+    RealTimeSlack --> DoneSlack([패치 완료 슬랙 메시지 출력])
