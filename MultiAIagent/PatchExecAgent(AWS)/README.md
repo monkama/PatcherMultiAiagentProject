@@ -4,32 +4,29 @@
 
 ## 동작 프로세스 (Architecture)
 
-본 에이전트는 상황에 따라 **자동 패치 프로세스**와 **관리자 승인 기반 프로세스** 두 가지 파이프라인으로 동작합니다.
+본 에이전트는 선행 에이전트의 결과물을 바탕으로, 설정에 따라 **자동 패치 프로세스** 또는 **관리자 승인 기반 프로세스**로 나뉘어 동작합니다.
 
 ```mermaid
-graph TD
-    %% 스타일 정의
-    classDef agent fill:#f9f0ff,stroke:#b180d1,stroke-width:2px;
-    classDef aws fill:#ff9900,stroke:#232f3e,stroke-width:2px,color:#fff;
-    classDef slack fill:#4A154B,stroke:#E01E5A,stroke-width:2px,color:#fff;
+graph LR
+    %% 노드 정의 (색상 제거 및 좌우 배치)
+    IA([Patch Impact Agent 결과물])
     
-    %% 노드 정의
-    IA["Patch Impact Agent<br/>(영향도 분석 결과)"]:::agent
-    Admin["관리자 (Slack)<br/>승인 버튼 클릭"]:::slack
-    API["API Gateway"]:::aws
-    Lambda["AWS Lambda<br/>(Agent Wake-up)"]:::aws
-    EA{"Patch Exec Agent"}:::agent
-    SSM["AWS Systems Manager (SSM)<br/>대상 서버 접속 및 패치"]:::aws
-    SlackOut["Slack<br/>(실시간 로그 및 결과 출력)"]:::slack
+    Admin[관리자 슬랙 확인 및 승인]
+    API[API Gateway]
+    Lambda[AWS Lambda]
+    
+    EA[Patch Exec Agent]
+    SSM[AWS Systems Manager]
+    SlackOut([실시간 슬랙 출력])
 
-    %% Flow 1: 자동 패치 흐름
-    IA ==>|자동 실행| EA
+    %% 흐름 정의
+    IA -->|자동 패치 프로세스| EA
     
-    %% Flow 2: 관리자 승인 흐름
-    Admin -.->|Webhook URL 호출| API
-    API -.->|Trigger| Lambda
-    Lambda -.->|에이전트 실행| EA
+    IA -->|승인 필요 시 대기| Admin
+    Admin -->|Webhook 호출| API
+    API -->|Trigger| Lambda
+    Lambda -->|Agent Wake-up| EA
 
     %% 공통 실행 흐름
-    EA ==>|명령어 전달| SSM
-    SSM ==>|실행 로그 스트리밍| SlackOut
+    EA -->|명령어 전달| SSM
+    SSM -->|실행 로그 스트리밍| SlackOut
