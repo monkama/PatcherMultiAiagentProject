@@ -61,6 +61,20 @@ API Gateway로부터 데이터를 넘겨받아 실제 로직을 수행하고 에
 * Lambda에 의해 깨어난(Wake-up) 에이전트는 사전에 전달받은 분석 결과(대상 서버 ID, 취약점 정보)를 바탕으로 **AWS Systems Manager (SSM)**의 `Send-Command`를 호출합니다.
 * 패치를 수행하는 동안 내부 코드에 작성된 Webhook URL(`https://hooks.slack.com/services/...`)을 통해 실시간 진행 로그를 슬랙 스레드에 스트리밍합니다.
 
+### 5. 에이전트 내부 Slack 연동 코드 설정 (Bot Token & Webhook)
+
+`Patch_exec_agent`의 파이썬 코드 내부에서는 알림의 성격과 목적에 따라 두 가지 슬랙 통신 방식을 분리하여 사용합니다.
+
+* **종합 리포트 발송 함수 (`send_slack_notification`):**
+  * **사용 API:** `https://slack.com/api/chat.postMessage`
+  * **인증 방식:** Slack Bot Token (`xoxb-...`) 사용
+  * **역할 및 특징:** 초기 패치 계획과 취약점 요약을 보여주는 대시보드 형태의 리포트를 발송합니다. Slack의 `Block Kit`(`header`, `section`, `divider` 등)을 활용해 UI를 구성하며, 관리자가 상호작용할 수 있는 [승인] 버튼을 함께 렌더링합니다.
+
+* **실시간 진행 상황 알림 함수 (`send_progress_message`):**
+  * **사용 API:** Slack Incoming Webhook URL (`https://hooks.slack.com/services/...`)
+  * **인증 방식:** Webhook URL 자체로 엔드포인트 인증
+  * **역할 및 특징:** 에이전트가 SSM으로 패치를 수행하는 동안, 각 단계별 성공 여부와 로그를 실시간 텍스트로 스트리밍합니다. 패치 본연의 로직에 지연을 주지 않기 위해 `timeout=5`로 짧게 설정하고 예외 처리(`try-except`)를 적용하여 안정성을 높였습니다.
+
 ### 슬랙 메시지 화면 구성
 슬랙 인터페이스는 단계별로 명확한 정보를 제공하도록 구성되었습니다.
 * **초기 정보 메시지:** 패치 대상 서버의 인스턴스 정보와 적용될 패치 내역을 요약하여 보여줍니다.
