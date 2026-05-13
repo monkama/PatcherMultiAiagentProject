@@ -20,8 +20,9 @@ graph LR
     EA --> SSM[SSM 접속 및 패치 실행]
     SSM --> RealTimeSlack[실시간 슬랙 출력: 패치 로그]
     RealTimeSlack --> DoneSlack([패치 완료 슬랙 메시지 출력])
+```
 
-## 프로세스 상세
+### 프로세스 상세
 1. **초기 슬랙 출력:** `Patch Impact Agent`의 동작이 끝나면, 어떤 서버를 패치할 것인지에 대한 요약 정보가 슬랙에 즉시 출력됩니다.
 2. **실행 분기:**
    * **자동 패치:** 초기 알림 후 즉시 `Patch_exec_agent`가 실행됩니다.
