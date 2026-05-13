@@ -36,8 +36,6 @@ graph LR
 * **연결 구조:** Slack Webhook URL -> API Gateway -> AWS Lambda -> Patch Exec Agent
 * **Lambda 도입 이유:** 관리자 승인 프로세스에서 대기 중인 **동작이 끝난 에이전트를 다시 깨우기 위한 용도(Wake-up)**로 Lambda를 사용했습니다. 이를 통해 에이전트를 항시 구동할 필요 없이 이벤트 기반으로만 동작하게 하여 리소스 효율성을 극대화했습니다.
 
-##  시스템 연동 및 상세 설정 (Integration Details)
-
 각 컴포넌트가 어떻게 데이터를 주고받으며 자동화 파이프라인을 구성하는지, 구체적인 설정값과 연결 방식을 설명합니다.
 
 ### 1. Slack App 설정 (Interactivity)
