@@ -493,6 +493,33 @@ textarea:focus {
   font-size: 13px;
 }
 
+.file-data-list {
+  display: grid;
+  gap: 10px;
+}
+
+.file-data-card {
+  min-width: 0;
+}
+
+.file-data-header {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.file-data-header strong {
+  color: #23313f;
+  font-size: 12px;
+}
+
+.file-data-header span {
+  color: #667482;
+  font-family: 'Cascadia Code', 'SFMono-Regular', Consolas, monospace;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
 .handoff-block pre {
   overflow: auto;
   max-height: 420px;

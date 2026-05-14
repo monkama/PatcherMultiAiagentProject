@@ -4,12 +4,12 @@ import { IconCopy } from '@wanteddev/wds-icon';
 import {
   buildAgentDataFlows,
   defaultForm,
-  formatDataBlock,
+  formatUnknownDataBlock,
   getStageState,
   stages,
   summarizePipelineResult,
 } from './pipeline';
-import type { AgentDataFlow, PipelineForm, PipelineMode, StopStage } from './types';
+import type { AgentDataFlow, DataFile, PipelineForm, PipelineMode, StopStage } from './types';
 
 type View = 'workflow' | 'result';
 
@@ -83,12 +83,12 @@ function App() {
       const text = await response.text();
 
       if (!response.ok) {
-        throw new Error('latest response.json을 찾지 못했습니다.');
+        throw new Error('OchestraResult latest 파일을 찾지 못했습니다.');
       }
 
       const parsed = JSON.parse(text) as unknown;
       setResultJson(JSON.stringify(parsed, null, 2));
-      setLoadStatus('로컬 최신 결과를 불러왔습니다.');
+      setLoadStatus('OchestraResult 최신 파일을 불러왔습니다.');
     } catch (error) {
       setLoadStatus(error instanceof Error ? error.message : '로컬 결과를 불러오지 못했습니다.');
     } finally {
@@ -330,7 +330,7 @@ function ResultView({
         <div className="panel-header">
           <div>
             <h2>실행 결과</h2>
-            <p className="panel-subtitle">pipeline_result.json을 붙여넣거나 파일로 불러오세요.</p>
+            <p className="panel-subtitle">OchestraResult의 에이전트별 latest 파일을 기준으로 표시합니다.</p>
           </div>
           <div className="result-actions">
             <Button
@@ -341,7 +341,7 @@ function ResultView({
               onClick={loadLatestResult}
               disabled={isLoadingLocalResult}
             >
-              {isLoadingLocalResult ? '불러오는 중' : '최신 결과 불러오기'}
+              {isLoadingLocalResult ? '불러오는 중' : 'latest 파일 불러오기'}
             </Button>
             <label className="file-button">
               파일 선택
@@ -394,7 +394,7 @@ function ResultView({
         ) : (
           <div className="empty-state">
             <strong>아직 표시할 실행 결과가 없습니다.</strong>
-            <span>오케스트레이터 실행 후 생성된 pipeline_result.json을 붙여넣으면 각 에이전트의 입력과 출력이 단계별로 표시됩니다.</span>
+            <span>OchestraResult 최신 파일을 불러오면 각 에이전트가 실제로 받은 파일과 생성한 파일이 단계별로 표시됩니다.</span>
           </div>
         )}
       </section>
@@ -414,18 +414,32 @@ function AgentFlowCard({ flow, index }: { flow: AgentDataFlow; index: number }) 
         <strong className={flow.status === 'ok' ? 'status-ok' : 'status-muted'}>{flow.status}</strong>
       </div>
       <div className="handoff-grid">
-        <JsonBlock title="받은 데이터" value={flow.received} />
-        <JsonBlock title="내보낸 데이터" value={flow.produced} />
+        <FileList title="받은 파일" files={flow.received} />
+        <FileList title="내보낸 파일" files={flow.produced} />
       </div>
     </article>
   );
 }
 
-function JsonBlock({ title, value }: { title: string; value: Record<string, unknown> }) {
+function FileList({ title, files }: { title: string; files: DataFile[] }) {
   return (
     <section className="handoff-block">
       <h4>{title}</h4>
-      <pre>{formatDataBlock(value)}</pre>
+      {files.length > 0 ? (
+        <div className="file-data-list">
+          {files.map((file) => (
+            <article className="file-data-card" key={`${file.path}:${file.label}`}>
+              <div className="file-data-header">
+                <strong>{file.label}</strong>
+                <span>{file.path}</span>
+              </div>
+              <pre>{formatUnknownDataBlock(file.value)}</pre>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <pre>(not available)</pre>
+      )}
     </section>
   );
 }

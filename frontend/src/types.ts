@@ -43,6 +43,12 @@ export type AgentDataFlow = {
   title: string;
   agent: string;
   status: string;
-  received: Record<string, unknown>;
-  produced: Record<string, unknown>;
+  received: DataFile[];
+  produced: DataFile[];
+};
+
+export type DataFile = {
+  label: string;
+  path: string;
+  value: unknown;
 };
