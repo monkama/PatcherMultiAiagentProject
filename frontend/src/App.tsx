@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '@wanteddev/wds';
 import { IconCopy } from '@wanteddev/wds-icon';
 import {
@@ -37,6 +37,8 @@ function App() {
   const [view, setView] = useState<View>(() => getViewFromPath());
   const [resultJson, setResultJson] = useState(() => localStorage.getItem('pipeline-result-json') || '');
   const [copyStatus, setCopyStatus] = useState('');
+  const [loadStatus, setLoadStatus] = useState('');
+  const [isLoadingLocalResult, setIsLoadingLocalResult] = useState(false);
 
   useEffect(() => {
     const handlePopState = () => setView(getViewFromPath());
@@ -72,9 +74,38 @@ function App() {
     window.setTimeout(() => setCopyStatus(''), 1600);
   };
 
+  const loadLatestResult = useCallback(async () => {
+    setIsLoadingLocalResult(true);
+    setLoadStatus('');
+
+    try {
+      const response = await fetch('/api/local-results/latest', { cache: 'no-store' });
+      const text = await response.text();
+
+      if (!response.ok) {
+        throw new Error('latest response.json을 찾지 못했습니다.');
+      }
+
+      const parsed = JSON.parse(text) as unknown;
+      setResultJson(JSON.stringify(parsed, null, 2));
+      setLoadStatus('로컬 최신 결과를 불러왔습니다.');
+    } catch (error) {
+      setLoadStatus(error instanceof Error ? error.message : '로컬 결과를 불러오지 못했습니다.');
+    } finally {
+      setIsLoadingLocalResult(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (view === 'result' && !resultJson.trim()) {
+      void loadLatestResult();
+    }
+  }, [view, resultJson, loadLatestResult]);
+
   const loadResultFile = async (file: File | undefined) => {
     if (!file) return;
     setResultJson(await file.text());
+    setLoadStatus('선택한 파일을 불러왔습니다.');
   };
 
   return (
@@ -117,7 +148,10 @@ function App() {
           summary={summary}
           dataFlows={dataFlows}
           copyStatus={copyStatus}
+          loadStatus={loadStatus}
+          isLoadingLocalResult={isLoadingLocalResult}
           copyResult={copyResult}
+          loadLatestResult={loadLatestResult}
           loadResultFile={loadResultFile}
         />
       )}
@@ -272,7 +306,10 @@ function ResultView({
   summary,
   dataFlows,
   copyStatus,
+  loadStatus,
+  isLoadingLocalResult,
   copyResult,
+  loadLatestResult,
   loadResultFile,
 }: {
   resultJson: string;
@@ -281,7 +318,10 @@ function ResultView({
   summary: Array<{ label: string; value: string }>;
   dataFlows: AgentDataFlow[];
   copyStatus: string;
+  loadStatus: string;
+  isLoadingLocalResult: boolean;
   copyResult: () => Promise<void>;
+  loadLatestResult: () => Promise<void>;
   loadResultFile: (file: File | undefined) => Promise<void>;
 }) {
   return (
@@ -293,6 +333,16 @@ function ResultView({
             <p className="panel-subtitle">pipeline_result.json을 붙여넣거나 파일로 불러오세요.</p>
           </div>
           <div className="result-actions">
+            <Button
+              type="button"
+              variant="solid"
+              color="primary"
+              size="medium"
+              onClick={loadLatestResult}
+              disabled={isLoadingLocalResult}
+            >
+              {isLoadingLocalResult ? '불러오는 중' : '최신 결과 불러오기'}
+            </Button>
             <label className="file-button">
               파일 선택
               <input
@@ -324,7 +374,7 @@ function ResultView({
         />
         <div className="result-status-row">
           <span className={error ? 'error-text' : 'success-text'}>
-            {error || copyStatus || '결과 JSON을 기다리는 중'}
+            {error || copyStatus || loadStatus || '결과 JSON을 기다리는 중'}
           </span>
         </div>
       </section>
