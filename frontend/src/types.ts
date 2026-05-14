@@ -37,3 +37,12 @@ export type Stage = {
   description: string;
   outputs: string[];
 };
+
+export type AgentDataFlow = {
+  key: Exclude<StopStage, ''>;
+  title: string;
+  agent: string;
+  status: string;
+  received: Record<string, unknown>;
+  produced: Record<string, unknown>;
+};

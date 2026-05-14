@@ -1,4 +1,4 @@
-import type { PipelineForm, Stage, StageState, StopStage } from './types';
+import type { AgentDataFlow, PipelineForm, Stage, StageState, StopStage } from './types';
 
 export const stages: Stage[] = [
   {
@@ -39,6 +39,7 @@ export const stages: Stage[] = [
 ];
 
 const stageOrder = stages.map((stage) => stage.key);
+const emptyValue = '(not available)';
 
 export const defaultForm: PipelineForm = {
   mode: 'full',
@@ -109,4 +110,167 @@ export function parsePayloadJson(value: string): Record<string, unknown> {
 
 export function prettyJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
+}
+
+export function buildAgentDataFlows(result: unknown): AgentDataFlow[] {
+  const root = asRecord(result);
+  if (!root) return [];
+
+  const vulnStage = asRecord(root.vuln_stage);
+  const assetStage = asRecord(root.asset_stage);
+  const riskStage = asRecord(root.risk_stage);
+  const patchStage = asRecord(root.patch_stage);
+  const patchExecutionStage = asRecord(root.patch_execution_stage);
+
+  const infraContext = pickFirst(
+    readRecord(assetStage, 'result'),
+    readRecord(root, 'infra_context'),
+  );
+  const riskResult = pickFirst(
+    riskStage?.result,
+    root.risk_result,
+  );
+  const patchStrategyResult = pickFirst(
+    readRecord(patchStage, 'result'),
+    readRecord(root, 'patch_strategy_result'),
+    root.patch_result,
+  );
+
+  return [
+    {
+      key: 'vuln',
+      title: 'Vulnerability Collect',
+      agent: 'vuln_collector_agent',
+      status: readText(vulnStage, 'status'),
+      received: compactRecord({
+        mode: root.mode,
+        stack_name: root.stack_name,
+        region: root.region,
+        cve_ids: pickFirst(vulnStage?.cve_ids, root.cve_ids),
+      }),
+      produced: compactRecord({
+        raw_result: vulnStage?.raw_result,
+        risk_assessment_payload: vulnStage?.risk_assessment_payload,
+        operational_impact_payload: vulnStage?.operational_impact_payload,
+        asset_matching_payload: vulnStage?.asset_matching_payload,
+      }),
+    },
+    {
+      key: 'asset',
+      title: 'Asset Matching',
+      agent: 'infra_matching_agent',
+      status: readText(assetStage, 'status'),
+      received: compactRecord({
+        stack_name: root.stack_name,
+        region: root.region,
+        asset_matching_payload: vulnStage?.asset_matching_payload,
+      }),
+      produced: compactRecord({
+        infra_context: infraContext,
+        output_path: assetStage?.output_path,
+      }),
+    },
+    {
+      key: 'risk',
+      title: 'Risk Evaluation',
+      agent: 'risk_evaluation_agent',
+      status: readText(riskStage, 'status'),
+      received: compactRecord({
+        region: root.region,
+        infra_context: infraContext,
+        risk_assessment_payload: vulnStage?.risk_assessment_payload,
+      }),
+      produced: compactRecord({
+        risk_result: riskResult,
+        record_count: riskStage?.record_count,
+        swarm_queries: riskStage?.swarm_queries,
+      }),
+    },
+    {
+      key: 'patch',
+      title: 'Patch Strategy',
+      agent: 'patch_impact_agent',
+      status: readText(patchStage, 'status'),
+      received: compactRecord({
+        region: root.region,
+        infra_context: infraContext,
+        risk_result: riskResult,
+        operational_payload: vulnStage?.operational_impact_payload,
+      }),
+      produced: compactRecord({
+        patch_strategy_result: patchStrategyResult,
+        strategy_context: patchStage?.strategy_context,
+        asset_fact_trace: patchStage?.asset_fact_trace,
+      }),
+    },
+    {
+      key: 'patch_execution',
+      title: 'Patch Execution',
+      agent: 'patch_exec_agent',
+      status: readText(patchExecutionStage, 'status'),
+      received: compactRecord({
+        region: root.region,
+        patch_strategy_result: patchStrategyResult,
+      }),
+      produced: compactRecord({
+        patch_execution_result: patchExecutionStage?.result,
+        result_path: patchExecutionStage?.result_path,
+      }),
+    },
+  ];
+}
+
+export function summarizePipelineResult(result: unknown): Array<{ label: string; value: string }> {
+  const root = asRecord(result);
+  if (!root) {
+    return [
+      { label: 'Mode', value: '-' },
+      { label: 'Pipeline', value: '-' },
+      { label: 'Status', value: '대기' },
+    ];
+  }
+
+  const pipeline = Array.isArray(root.pipeline) ? root.pipeline : [];
+  return [
+    { label: 'Mode', value: String(root.mode || '-') },
+    { label: 'Pipeline', value: pipeline.length ? `${pipeline.length} stages` : '-' },
+    { label: 'Status', value: String(root.agent_message || '분석됨') },
+  ];
+}
+
+export function formatDataBlock(value: Record<string, unknown>): string {
+  return Object.keys(value).length > 0 ? prettyJson(value) : emptyValue;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function readRecord(value: Record<string, unknown> | null | undefined, key: string): Record<string, unknown> | null {
+  return value ? asRecord(value[key]) : null;
+}
+
+function readText(value: Record<string, unknown> | null | undefined, key: string): string {
+  const raw = value?.[key];
+  return typeof raw === 'string' && raw.trim() ? raw : 'not-run';
+}
+
+function pickFirst(...values: unknown[]): unknown {
+  return values.find((value) => hasValue(value));
+}
+
+function compactRecord(value: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entry]) => hasValue(entry)),
+  );
+}
+
+function hasValue(value: unknown): boolean {
+  if (value === null || value === undefined) return false;
+  if (typeof value === 'string') return value.trim().length > 0;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === 'object') return Object.keys(value).length > 0;
+  return true;
 }

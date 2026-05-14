@@ -81,13 +81,40 @@ h3 {
 .panel-header,
 .stage-heading,
 .chip-row,
-.field-row {
+.field-row,
+.result-actions,
+.flow-header {
   display: flex;
   align-items: center;
 }
 
 .topbar-actions {
   gap: 10px;
+}
+
+.view-tabs {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid #d7dee7;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.view-tabs button {
+  min-width: 96px;
+  min-height: 34px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #4b5a69;
+  font-weight: 800;
+}
+
+.view-tabs button.active {
+  background: #0b63ce;
+  color: #ffffff;
 }
 
 .primary-button,
@@ -118,19 +145,17 @@ h3 {
   border-color: #d7dee7;
 }
 
-.workspace-grid {
+.workflow-grid {
   display: grid;
   grid-template-columns: 360px minmax(0, 1fr);
-  grid-template-areas:
-    'controls pipeline'
-    'json result';
+  grid-template-areas: 'controls pipeline';
   gap: 16px;
 }
 
 .control-panel,
 .pipeline-panel,
-.json-panel,
-.result-panel {
+.result-input-panel,
+.flow-card {
   border: 1px solid #d8e0e8;
   border-radius: 8px;
   background: #ffffff;
@@ -147,20 +172,17 @@ h3 {
   padding: 18px;
 }
 
-.json-panel {
-  grid-area: json;
-  padding: 18px;
-}
-
-.result-panel {
-  grid-area: result;
-  padding: 18px;
-}
-
 .panel-header {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 16px;
+}
+
+.panel-subtitle {
+  margin-top: 5px;
+  color: #667482;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .status-pill,
@@ -353,9 +375,8 @@ textarea:focus {
   padding: 4px 8px;
 }
 
-.json-editor,
 .result-editor,
-.json-preview {
+.handoff-block pre {
   min-height: 180px;
   padding: 12px;
   font-family: 'Cascadia Code', 'SFMono-Regular', Consolas, monospace;
@@ -363,23 +384,124 @@ textarea:focus {
   line-height: 1.55;
 }
 
-.json-editor {
-  resize: vertical;
-  margin-bottom: 10px;
-}
-
 .result-editor {
   resize: vertical;
-  min-height: 272px;
+  min-height: 220px;
 }
 
-.json-preview {
+.result-view {
+  display: grid;
+  gap: 16px;
+}
+
+.result-input-panel {
+  padding: 18px;
+}
+
+.result-actions {
+  gap: 10px;
+}
+
+.file-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid #d7dee7;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #23313f;
+  cursor: pointer;
+  font-weight: 800;
+  overflow: hidden;
+}
+
+.file-button input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.result-status-row {
+  display: flex;
+  justify-content: flex-end;
+  min-height: 20px;
+  margin-top: 8px;
+}
+
+.flow-list {
+  display: grid;
+  gap: 14px;
+}
+
+.flow-card {
+  padding: 18px;
+}
+
+.flow-header {
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.flow-header > div:nth-child(2) {
+  flex: 1;
+  min-width: 0;
+}
+
+.flow-header span {
+  display: block;
+  margin-top: 4px;
+  color: #657384;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.status-ok,
+.status-muted {
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-size: 12px;
+}
+
+.status-ok {
+  background: #e8f7ef;
+  color: #14763f;
+}
+
+.status-muted {
+  background: #eef2f6;
+  color: #667482;
+}
+
+.handoff-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.handoff-block {
+  min-width: 0;
+}
+
+.handoff-block h4 {
+  margin: 0 0 8px;
+  color: #354252;
+  font-size: 13px;
+}
+
+.handoff-block pre {
   overflow: auto;
-  max-height: 300px;
+  max-height: 420px;
   border: 1px solid #d8e0e8;
   border-radius: 8px;
   background: #111827;
   color: #d8f3ff;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .summary-grid {
@@ -412,6 +534,20 @@ textarea:focus {
   font-size: 14px;
 }
 
+.empty-state {
+  display: grid;
+  gap: 8px;
+  padding: 22px;
+  border: 1px dashed #c9d3df;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #52606d;
+}
+
+.empty-state strong {
+  color: #17202a;
+}
+
 @media (max-width: 980px) {
   .app-shell {
     width: min(100% - 24px, 760px);
@@ -423,13 +559,15 @@ textarea:focus {
     flex-direction: column;
   }
 
-  .workspace-grid {
+  .workflow-grid {
     grid-template-columns: 1fr;
     grid-template-areas:
       'controls'
-      'pipeline'
-      'json'
-      'result';
+      'pipeline';
+  }
+
+  .handoff-grid {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -440,9 +578,15 @@ textarea:focus {
 
   .topbar-actions,
   .field-row,
-  .stage-heading {
+  .stage-heading,
+  .result-actions,
+  .flow-header {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .view-tabs {
+    width: 100%;
   }
 
   .segmented-control {
