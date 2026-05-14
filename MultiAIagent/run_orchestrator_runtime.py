@@ -65,8 +65,8 @@ MODE_OPTIONS = {
     "3": ("asset_only", "자산 수집만"),
     "4": ("risk_only", "위험 평가만"),
     "5": ("patch_only", "패치 영향도만"),
-    "6": ("test", "중간 단계 주입 테스트"),
-    "7": ("patch_exec_only", "패치 실행만"),
+    "6": ("patch_exec_only", "패치 실행만"),
+    "7": ("test", "중간 단계 주입 테스트"),
 }
 
 STOP_STAGE_OPTIONS = {
@@ -130,12 +130,12 @@ def _print_usage_guide() -> None:
         "   runtime ARN은 .env 에 설정하거나 실행 시 직접 입력하면 됩니다.\n"
         "   patch는 현재 Bedrock 기반이며 OpenAI 키 입력은 더 이상 필요하지 않습니다.\n"
         "   위험도 기반 전략 판단, 필요한 경우 asset fact 조회, 최종 판단을 한 번의 patch 호출 안에서 처리합니다.\n"
-        "6. test\n"
-        "   중간 단계 주입 테스트\n"
-        "   stop_stage 를 고르고, 그 단계에 필요한 JSON만 넣으면 됩니다.\n"
-        "7. patch_exec_only\n"
+        "6. patch_exec_only\n"
         "   패치 실행 에이전트만 단독으로 실행\n"
         "   필요 입력: patch_strategy_result.json\n"
+        "7. test\n"
+        "   중간 단계 주입 테스트\n"
+        "   stop_stage 를 고르고, 그 단계에 필요한 JSON만 넣으면 됩니다.\n"
     )
     print(
         "[빠른 예시]\n"
@@ -416,7 +416,7 @@ def _build_payload_interactively() -> tuple[dict[str, Any], str]:
             PATCH_EXECUTION_RUNTIME_ARN_ENV_KEYS,
         )
 
-        payload["patch_final_result"] = _prompt_json_file("patch_result", "patch_result", required=True)
+        payload["patch_strategy_result"] = _prompt_json_file("patch_result", "patch_result", required=True)
         payload["prompt"] = _prompt_with_default("패치 실행 프롬프트", "보안 패치 분석 및 자동 실행")
 
     elif mode == "test":
@@ -462,7 +462,7 @@ def _build_payload_interactively() -> tuple[dict[str, Any], str]:
             test_inputs["risk_result"] = _prompt_json_file("risk_result", "risk_result", required=True)
             test_inputs["operational_payload"] = _prompt_json_file("operational_payload", "operational_payload", required=True)
         elif stop_stage == "patch_execution":
-            test_inputs["patch_final_result"] = _prompt_json_file("patch_result", "patch_result", required=True)
+            test_inputs["patch_strategy_result"] = _prompt_json_file("patch_result", "patch_result", required=True)
             payload["prompt"] = _prompt_with_default("패치 실행 프롬프트 (기본값)", "보안 패치 분석 및 자동 실행")
 
         payload["test_inputs"] = test_inputs

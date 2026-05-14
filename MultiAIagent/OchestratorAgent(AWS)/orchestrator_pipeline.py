@@ -361,10 +361,14 @@ def run_patch_exec_only(payload: dict[str, Any]) -> dict[str, Any]:
     state = _seed_state(payload)
     config["injected_state"] = list(state.keys())
 
-    # 클라이언트가 보낸 최종 영향도 데이터 추출
-    impact_data = _pick_payload_value(payload, "patch_final_result")
+    # 클라이언트가 보낸 최종 patch 전략 데이터 추출
+    impact_data = (
+        _pick_payload_value(payload, "patch_strategy_result")
+        or _pick_payload_value(payload, "patch_result")
+        or _pick_payload_value(payload, "patch_final_result")
+    )
     if not impact_data:
-        raise ValueError("patch_exec_only 모드에서는 patch_final_result 가 필요합니다.")
+        raise ValueError("patch_exec_only 모드에서는 patch_strategy_result 가 필요합니다.")
 
     # 패치 실행 에이전트 단독 호출
     state["patch_execution_stage"] = run_patch_execution_stage(
