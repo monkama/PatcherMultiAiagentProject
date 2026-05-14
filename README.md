@@ -400,8 +400,8 @@ PATCH_MAX_TOTAL_WALL_TIME_SECONDS=900
 3. `asset_only`
 4. `risk_only`
 5. `patch_only`
-6. `test`
-7. `patch_exec_only`
+6. `patch_exec_only`
+7. `test`
 
 ### 모드별 입력
 
