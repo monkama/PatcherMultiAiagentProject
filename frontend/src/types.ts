@@ -4,6 +4,7 @@ export type PipelineMode =
   | 'asset_only'
   | 'risk_only'
   | 'patch_only'
+  | 'before_exec'
   | 'patch_exec_only'
   | 'test';
 
@@ -28,7 +29,7 @@ export type PipelineForm = {
   payloadJson: string;
 };
 
-export type StageState = 'ready' | 'pending' | 'done' | 'blocked';
+export type StageState = 'ready' | 'pending' | 'running' | 'done' | 'blocked';
 
 export type Stage = {
   key: StopStage;

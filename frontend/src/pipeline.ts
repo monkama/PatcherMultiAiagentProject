@@ -63,6 +63,7 @@ export function getStageState(form: PipelineForm, key: StopStage): StageState {
   if (form.mode === 'asset_only') return key === 'asset' ? 'pending' : 'blocked';
   if (form.mode === 'risk_only') return key === 'risk' ? 'pending' : 'blocked';
   if (form.mode === 'patch_only') return key === 'patch' ? 'pending' : 'blocked';
+  if (form.mode === 'before_exec') return key === 'patch_execution' ? 'blocked' : 'pending';
   if (form.mode === 'patch_exec_only') return key === 'patch_execution' ? 'pending' : 'blocked';
   if (stopIndex >= 0) return index <= stopIndex ? 'pending' : 'blocked';
   return 'pending';
