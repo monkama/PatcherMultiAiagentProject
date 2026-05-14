@@ -52,3 +52,18 @@ export type DataFile = {
   path: string;
   value: unknown;
 };
+
+export type TimelineStep = {
+  key: Exclude<StopStage, ''>;
+  title: string;
+  agent: string;
+  status: string;
+  received: string[];
+  reasoning: string[];
+  result: string[];
+  handoff: string;
+  highlights: Array<{
+    label: string;
+    value: string;
+  }>;
+};

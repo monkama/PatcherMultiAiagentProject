@@ -3,15 +3,17 @@ import { Button } from '@wanteddev/wds';
 import { IconCopy } from '@wanteddev/wds-icon';
 import {
   buildAgentDataFlows,
+  buildResultTimeline,
   defaultForm,
   formatUnknownDataBlock,
   getStageState,
   stages,
   summarizePipelineResult,
+  summarizeUserResult,
 } from './pipeline';
-import type { AgentDataFlow, DataFile, PipelineForm, PipelineMode, StopStage } from './types';
+import type { AgentDataFlow, DataFile, PipelineForm, PipelineMode, StopStage, TimelineStep } from './types';
 
-type View = 'workflow' | 'result';
+type View = 'workflow' | 'result' | 'dev';
 
 const modeOptions: Array<{ value: PipelineMode; label: string }> = [
   { value: 'full', label: 'Full' },
@@ -55,14 +57,19 @@ function App() {
     () => (parsedResult.value ? buildAgentDataFlows(parsedResult.value) : []),
     [parsedResult.value],
   );
-  const summary = useMemo(() => summarizePipelineResult(parsedResult.value), [parsedResult.value]);
+  const timelineSteps = useMemo(
+    () => (parsedResult.value ? buildResultTimeline(parsedResult.value) : []),
+    [parsedResult.value],
+  );
+  const userSummary = useMemo(() => summarizeUserResult(parsedResult.value), [parsedResult.value]);
+  const devSummary = useMemo(() => summarizePipelineResult(parsedResult.value), [parsedResult.value]);
 
   const updateForm = <K extends keyof PipelineForm>(key: K, value: PipelineForm[K]) => {
     setForm((current) => ({ ...current, [key]: value }));
   };
 
   const navigate = (nextView: View) => {
-    const nextPath = nextView === 'result' ? '/result' : '/';
+    const nextPath = nextView === 'result' ? '/result' : nextView === 'dev' ? '/dev' : '/';
     window.history.pushState(null, '', nextPath);
     setView(nextView);
   };
@@ -97,7 +104,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (view === 'result' && !resultJson.trim()) {
+    if (view !== 'workflow' && !resultJson.trim()) {
       void loadLatestResult();
     }
   }, [view, resultJson, loadLatestResult]);
@@ -131,6 +138,13 @@ function App() {
             >
               Result
             </button>
+            <button
+              type="button"
+              className={view === 'dev' ? 'active' : ''}
+              onClick={() => navigate('dev')}
+            >
+              Dev
+            </button>
           </div>
           <a className="ghost-button" href="../README.md">
             README
@@ -140,12 +154,21 @@ function App() {
 
       {view === 'workflow' ? (
         <WorkflowView form={form} updateForm={updateForm} />
+      ) : view === 'result' ? (
+        <ResultTimelineView
+          error={parsedResult.error}
+          summary={userSummary}
+          timelineSteps={timelineSteps}
+          loadStatus={loadStatus}
+          isLoadingLocalResult={isLoadingLocalResult}
+          loadLatestResult={loadLatestResult}
+        />
       ) : (
-        <ResultView
+        <DevView
           resultJson={resultJson}
           setResultJson={setResultJson}
           error={parsedResult.error}
-          summary={summary}
+          summary={devSummary}
           dataFlows={dataFlows}
           copyStatus={copyStatus}
           loadStatus={loadStatus}
@@ -299,7 +322,118 @@ function WorkflowView({
   );
 }
 
-function ResultView({
+function ResultTimelineView({
+  error,
+  summary,
+  timelineSteps,
+  loadStatus,
+  isLoadingLocalResult,
+  loadLatestResult,
+}: {
+  error: string;
+  summary: Array<{ label: string; value: string }>;
+  timelineSteps: TimelineStep[];
+  loadStatus: string;
+  isLoadingLocalResult: boolean;
+  loadLatestResult: () => Promise<void>;
+}) {
+  return (
+    <section className="result-view">
+      <section className="result-hero" aria-label="실행 결과 요약">
+        <div>
+          <p className="eyebrow">Agent Timeline</p>
+          <h2>에이전트 실행 흐름</h2>
+          <p className="panel-subtitle">
+            각 에이전트가 받은 정보, 판단 근거, 만든 결과를 사용자가 읽기 쉬운 순서로 정리했습니다.
+          </p>
+        </div>
+        <div className="result-actions">
+          <Button
+            type="button"
+            variant="solid"
+            color="primary"
+            size="medium"
+            onClick={loadLatestResult}
+            disabled={isLoadingLocalResult}
+          >
+            {isLoadingLocalResult ? '불러오는 중' : 'latest 결과 불러오기'}
+          </Button>
+        </div>
+      </section>
+
+      <div className="result-status-row">
+        <span className={error ? 'error-text' : 'success-text'}>
+          {error || loadStatus || 'OchestraResult 최신 결과를 기준으로 표시합니다.'}
+        </span>
+      </div>
+
+      <div className="summary-grid result-summary-grid">
+        {summary.map((item) => (
+          <div className="summary-item" key={item.label}>
+            <span>{item.label}</span>
+            <strong>{item.value}</strong>
+          </div>
+        ))}
+      </div>
+
+      <section className="timeline-list" aria-label="에이전트 타임라인">
+        {timelineSteps.length > 0 ? (
+          timelineSteps.map((step, index) => (
+            <TimelineCard index={index} step={step} key={step.key} />
+          ))
+        ) : (
+          <div className="empty-state">
+            <strong>아직 표시할 실행 결과가 없습니다.</strong>
+            <span>latest 결과를 불러오면 에이전트별 판단 흐름이 타임라인으로 표시됩니다.</span>
+          </div>
+        )}
+      </section>
+    </section>
+  );
+}
+
+function TimelineCard({ step, index }: { step: TimelineStep; index: number }) {
+  const lines = [
+    ...step.received,
+    ...step.reasoning,
+    ...step.result,
+    step.handoff,
+  ].filter(Boolean);
+
+  return (
+    <article className="timeline-card" style={{ animationDelay: `${index * 120}ms` }}>
+      <div className="timeline-marker">
+        <span>{index + 1}</span>
+      </div>
+      <div className="timeline-content">
+        <div className="timeline-header">
+          <div>
+            <h3>{step.title}</h3>
+            <span>{step.agent}</span>
+          </div>
+          <strong className={step.status === 'ok' ? 'status-ok' : 'status-muted'}>{step.status}</strong>
+        </div>
+
+        <div className="timeline-highlights">
+          {step.highlights.map((item) => (
+            <div key={item.label}>
+              <span>{item.label}</span>
+              <strong>{item.value}</strong>
+            </div>
+          ))}
+        </div>
+
+        <div className="timeline-message">
+          {lines.slice(0, 8).map((line, lineIndex) => (
+            <p key={`${step.key}-${lineIndex}`}>{line}</p>
+          ))}
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function DevView({
   resultJson,
   setResultJson,
   error,
@@ -455,7 +589,9 @@ function parseResultJson(value: string): { value: unknown | null; error: string 
 }
 
 function getViewFromPath(): View {
-  return window.location.pathname === '/result' ? 'result' : 'workflow';
+  if (window.location.pathname === '/result') return 'result';
+  if (window.location.pathname === '/dev') return 'dev';
+  return 'workflow';
 }
 
 export default App;
