@@ -458,6 +458,20 @@ function DevView({
   loadLatestResult: () => Promise<void>;
   loadResultFile: (file: File | undefined) => Promise<void>;
 }) {
+  const stageResponseFiles = dataFlows.flatMap((flow) =>
+    [...flow.received, ...flow.produced]
+      .filter(isStageResponseFile)
+      .map((file) => ({
+        ...file,
+        label: `${flow.agent}/stage_response.json`,
+      })),
+  );
+  const visibleDataFlows = dataFlows.map((flow) => ({
+    ...flow,
+    received: flow.received.filter((file) => !isStageResponseFile(file)),
+    produced: flow.produced.filter((file) => !isStageResponseFile(file)),
+  }));
+
   return (
     <section className="result-view">
       <section className="result-input-panel" aria-label="결과 입력">
@@ -498,14 +512,17 @@ function DevView({
             </Button>
           </div>
         </div>
-        <textarea
-          className="result-editor"
-          value={resultJson}
-          onChange={(event) => setResultJson(event.target.value)}
-          spellCheck={false}
-          placeholder="{ ... }"
-          aria-label="pipeline result JSON"
-        />
+        <details className="dev-bundle-toggle">
+          <summary>불러온 latest bundle JSON</summary>
+          <textarea
+            className="result-editor"
+            value={resultJson}
+            onChange={(event) => setResultJson(event.target.value)}
+            spellCheck={false}
+            placeholder="{ ... }"
+            aria-label="pipeline result JSON"
+          />
+        </details>
         <div className="result-status-row">
           <span className={error ? 'error-text' : 'success-text'}>
             {error || copyStatus || loadStatus || '결과 JSON을 기다리는 중'}
@@ -522,9 +539,9 @@ function DevView({
         ))}
       </div>
 
-      <section className="flow-list" aria-label="에이전트 데이터 흐름">
-        {dataFlows.length > 0 ? (
-          dataFlows.map((flow, index) => <AgentFlowCard flow={flow} index={index} key={flow.key} />)
+      <section className="dev-flow-list" aria-label="에이전트 데이터 흐름">
+        {visibleDataFlows.length > 0 ? (
+          visibleDataFlows.map((flow, index) => <AgentFlowCard flow={flow} index={index} key={flow.key} />)
         ) : (
           <div className="empty-state">
             <strong>아직 표시할 실행 결과가 없습니다.</strong>
@@ -532,14 +549,28 @@ function DevView({
           </div>
         )}
       </section>
+
+      <section className="stage-response-panel" aria-label="stage response files">
+        <div className="panel-header">
+          <div>
+            <h2>Stage responses</h2>
+            <p className="panel-subtitle">각 단계의 wrapper 응답은 여기에서만 모아서 확인합니다.</p>
+          </div>
+          <span className="status-pill">{stageResponseFiles.length} files</span>
+        </div>
+        <FileList title="stage_response.json 모음" files={stageResponseFiles} />
+      </section>
     </section>
   );
 }
 
 function AgentFlowCard({ flow, index }: { flow: AgentDataFlow; index: number }) {
   return (
-    <article className="flow-card">
-      <div className="flow-header">
+    <article className="dev-flow-card">
+      <div className="dev-file-column">
+        <FileList title="받은 파일" files={flow.received} />
+      </div>
+      <div className="dev-agent-node">
         <div className="stage-index">{index + 1}</div>
         <div>
           <h3>{flow.title}</h3>
@@ -547,8 +578,7 @@ function AgentFlowCard({ flow, index }: { flow: AgentDataFlow; index: number }) 
         </div>
         <strong className={flow.status === 'ok' ? 'status-ok' : 'status-muted'}>{flow.status}</strong>
       </div>
-      <div className="handoff-grid">
-        <FileList title="받은 파일" files={flow.received} />
+      <div className="dev-file-column">
         <FileList title="내보낸 파일" files={flow.produced} />
       </div>
     </article>
@@ -560,22 +590,26 @@ function FileList({ title, files }: { title: string; files: DataFile[] }) {
     <section className="handoff-block">
       <h4>{title}</h4>
       {files.length > 0 ? (
-        <div className="file-data-list">
+        <div className="file-toggle-list">
           {files.map((file) => (
-            <article className="file-data-card" key={`${file.path}:${file.label}`}>
-              <div className="file-data-header">
+            <details className="file-toggle-card" key={`${file.path}:${file.label}`}>
+              <summary>
                 <strong>{file.label}</strong>
                 <span>{file.path}</span>
-              </div>
+              </summary>
               <pre>{formatUnknownDataBlock(file.value)}</pre>
-            </article>
+            </details>
           ))}
         </div>
       ) : (
-        <pre>(not available)</pre>
+        <div className="empty-file-pill">(not available)</div>
       )}
     </section>
   );
+}
+
+function isStageResponseFile(file: DataFile): boolean {
+  return file.label.endsWith('stage_response.json') || file.path.endsWith('/stage_response.json');
 }
 
 function parseResultJson(value: string): { value: unknown | null; error: string } {
