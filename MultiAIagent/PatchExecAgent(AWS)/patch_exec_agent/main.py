@@ -1,6 +1,7 @@
 import time
 import boto3
 import json
+import os
 import requests
 import urllib3
 import traceback
@@ -9,10 +10,29 @@ import base64
 from urllib.parse import parse_qs
 
 from strands import Agent
+from strands.models.openai import OpenAIModel
 from .prompts.system_prompt import SYSTEM_PROMPT 
 from .prompts.mission_prompt import build_agent_mission  
 
 ssm_client = boto3.client('ssm', region_name='ap-northeast-2')
+OPENAI_MODEL_ID = os.environ.get("OPENAI_MODEL") or os.environ.get("OPENAI_MODEL_ID") or "gpt-4.1-mini"
+OPENAI_BASE_URL = str(os.environ.get("OPENAI_BASE_URL") or "").strip()
+
+
+def _build_openai_model():
+    api_key = str(os.environ.get("OPENAI_API_KEY") or "").strip()
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY 환경변수가 필요합니다.")
+
+    client_args = {"api_key": api_key}
+    if OPENAI_BASE_URL:
+        client_args["base_url"] = OPENAI_BASE_URL
+
+    return OpenAIModel(
+        client_args=client_args,
+        model_id=OPENAI_MODEL_ID,
+        params={"temperature": 0},
+    )
 
 # [SSM 실행 함수]
 def run_ssm_and_wait(instance_id, commands):
@@ -86,7 +106,7 @@ def send_slack_notification(plan_data):
     except:
         pass
 
-agent = Agent(model="anthropic.claude-3-5-sonnet-20240620-v1:0", system_prompt=SYSTEM_PROMPT)
+agent = Agent(model=_build_openai_model(), system_prompt=SYSTEM_PROMPT)
 
 def execute_patch_logic(payload: dict) -> str:
     try:

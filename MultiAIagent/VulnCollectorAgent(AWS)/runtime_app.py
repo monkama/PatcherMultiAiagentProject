@@ -26,12 +26,18 @@ def invoke(payload: dict | None) -> dict:
 
     opencve_api_key = str(payload.get("OPENCVE_API_KEY") or "").strip()
     bedrock_model_id = str(payload.get("BEDROCK_MODEL_ID") or "").strip()
+    openai_model_id = str(payload.get("OPENAI_MODEL") or payload.get("OPENAI_MODEL_ID") or "").strip()
+    openai_base_url = str(payload.get("OPENAI_BASE_URL") or "").strip()
     cve_ids = _normalize_cve_ids(payload.get("cve_ids") or payload.get("CVE_IDS") or payload.get("cve_id"))
 
     if opencve_api_key:
         os.environ["OPENCVE_API_KEY"] = opencve_api_key
     if bedrock_model_id:
         os.environ["BEDROCK_MODEL_ID"] = bedrock_model_id
+    if openai_model_id:
+        os.environ["OPENAI_MODEL"] = openai_model_id
+    if openai_base_url:
+        os.environ["OPENAI_BASE_URL"] = openai_base_url
 
     result = run_vulnerability_collection(
         cve_ids=cve_ids,

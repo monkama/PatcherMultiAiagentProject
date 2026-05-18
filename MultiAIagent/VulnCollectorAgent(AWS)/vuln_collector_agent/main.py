@@ -223,8 +223,23 @@ def _affected_version_ranges(raw_cve: dict) -> list[str]:
     return ranges
 
 
+def _dataset_record_map(dataset: dict) -> dict[str, dict]:
+    mapping: dict[str, dict] = {}
+    for raw_cve in dataset.get("records", []) if isinstance(dataset.get("records"), list) else []:
+        if not isinstance(raw_cve, dict):
+            continue
+        cve_id = str(raw_cve.get("cve_id") or "").strip()
+        if cve_id:
+            mapping[cve_id] = raw_cve
+    return mapping
 
-def build_asset_matching_payloads(dataset: dict, operational_payload: dict | None = None) -> dict:
+
+
+def build_asset_matching_payloads(
+    dataset: dict,
+    operational_payload: dict | None = None,
+    risk_payload: dict | None = None,
+) -> dict:
     op_by_cve = {}
     if isinstance(operational_payload, dict):
         for record in operational_payload.get("records", []) if isinstance(operational_payload.get("records"), list) else []:
@@ -245,7 +260,6 @@ def build_asset_matching_payloads(dataset: dict, operational_payload: dict | Non
             "affected_version_range": _affected_version_ranges(raw_cve),
             "fixed_version": fixed_version,
             "product_status": "affected",
-            "cpe_criteria": _collect_cpe_criteria(raw_cve),
         })
 
     return {
@@ -258,11 +272,24 @@ def build_asset_matching_payloads(dataset: dict, operational_payload: dict | Non
 
 
 def generate_agent_payloads(dataset: dict) -> dict[str, dict]:
+    risk_payload = build_risk_assessment_payloads(dataset)
     operational_payload = build_operational_impact_payloads(dataset)
+    raw_by_cve = _dataset_record_map(dataset)
+
+    if isinstance(risk_payload, dict):
+        for record in risk_payload.get("records", []) if isinstance(risk_payload.get("records"), list) else []:
+            if not isinstance(record, dict):
+                continue
+            cve_id = str(record.get("cve_id") or "").strip()
+            raw_cve = raw_by_cve.get(cve_id, {})
+            cvss = raw_cve.get("cvss") if isinstance(raw_cve, dict) else None
+            if isinstance(cvss, dict) and cvss:
+                record["cvss"] = cvss
+
     return {
-        RISK_PAYLOAD_OUTPUT_PATH: build_risk_assessment_payloads(dataset),
+        RISK_PAYLOAD_OUTPUT_PATH: risk_payload,
         OPERATIONAL_PAYLOAD_OUTPUT_PATH: operational_payload,
-        ASSET_MATCHING_PAYLOAD_OUTPUT_PATH: build_asset_matching_payloads(dataset, operational_payload),
+        ASSET_MATCHING_PAYLOAD_OUTPUT_PATH: build_asset_matching_payloads(dataset, operational_payload, risk_payload),
     }
 
 

@@ -33,8 +33,6 @@ else
 fi
 
 cp "$ROOT_DIR/main.py" "$BUILD_DIR/main.py"
-cp "$ROOT_DIR/risk_assessment_refiner.py" "$BUILD_DIR/risk_assessment_refiner.py"
-cp "$ROOT_DIR/infra_context_refiner.py" "$BUILD_DIR/infra_context_refiner.py"
 cp -R "$ROOT_DIR/strands" "$BUILD_DIR/strands"
 
 find "$BUILD_DIR" -type d -name "__pycache__" -prune -exec rm -rf {} +

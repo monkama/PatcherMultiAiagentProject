@@ -1,6 +1,7 @@
 bedrock-agentcore
 boto3
 strands-agents
+openai
 pydantic
 typing-extensions
 opentelemetry-api

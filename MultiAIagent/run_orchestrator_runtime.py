@@ -128,7 +128,7 @@ def _print_usage_guide() -> None:
         "   패치 영향도 에이전트만 실행\n"
         "   필요 입력: infra_context.json, risk_evaluation_result.json, operational_impact_payloads.json\n"
         "   runtime ARN은 .env 에 설정하거나 실행 시 직접 입력하면 됩니다.\n"
-        "   patch는 현재 Bedrock 기반이며 OpenAI 키 입력은 더 이상 필요하지 않습니다.\n"
+        "   patch는 현재 OpenAI API 기반이며, 관련 runtime에는 OPENAI_API_KEY가 배포 환경에 설정돼 있어야 합니다.\n"
         "   위험도 기반 전략 판단, 필요한 경우 asset fact 조회, 최종 판단을 한 번의 patch 호출 안에서 처리합니다.\n"
         "6. patch_exec_only\n"
         "   패치 실행 에이전트만 단독으로 실행\n"
