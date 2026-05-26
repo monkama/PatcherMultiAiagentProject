@@ -12,8 +12,10 @@ from pydantic import BaseModel, Field
 
 try:
     from strands import Agent, tool
+    from strands.models.bedrock import BedrockModel
 except Exception:  # noqa: BLE001
     Agent = None
+    BedrockModel = None
 
     def tool(func):  # type: ignore[no-redef]
         return func
@@ -21,9 +23,9 @@ except Exception:  # noqa: BLE001
 
 DEFAULT_REGION = os.environ.get("AWS_REGION") or os.environ.get("DEFAULT_REGION") or "ap-northeast-2"
 DEFAULT_MODEL_ID = (
-    os.environ.get("PATCH_IMPACT_BEDROCK_MODEL")
+    os.environ.get("PATCH_IMPACT_BEDROCK_MODEL_ID")
     or os.environ.get("BEDROCK_MODEL_ID")
-    or "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+    or "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
 )
 DEFAULT_AGENTCORE_READ_TIMEOUT = int(os.environ.get("AGENTCORE_READ_TIMEOUT", "900"))
 DEFAULT_AGENTCORE_CONNECT_TIMEOUT = int(os.environ.get("AGENTCORE_CONNECT_TIMEOUT", "10"))
@@ -119,6 +121,22 @@ def _agentcore_client(region: str) -> Any:
         )
         _CLIENT_CACHE[key] = client
     return client
+
+
+def _build_bedrock_model() -> Any:
+    if BedrockModel is None:
+        raise RuntimeError("strands BedrockModel 을 불러올 수 없습니다.")
+
+    region = (
+        os.environ.get("AWS_REGION")
+        or os.environ.get("AWS_DEFAULT_REGION")
+        or DEFAULT_REGION
+    )
+    return BedrockModel(
+        region_name=region,
+        model_id=DEFAULT_MODEL_ID,
+        temperature=0,
+    )
 
 
 def _invoke_agentcore_runtime(runtime_arn: str, request_payload: dict[str, Any], region: str) -> dict[str, Any]:
@@ -343,9 +361,7 @@ def _build_strategy_context(payload: dict[str, Any]) -> dict[str, Any]:
                         "base_cvss": impacted.get("base_cvss"),
                         "calculated_risk": impacted.get("calculated_risk"),
                         "exposure_level": impacted.get("exposure_level"),
-                        "mitigations_found": impacted.get("mitigations_found"),
                         "risk_adjustment_reason": impacted.get("risk_adjustment_reason"),
-                        "remediation": impacted.get("remediation"),
                     },
                     "infra_asset": _compact_asset(asset_index.get(asset_id, {})),
                     "operational_context": _compact_operational(operational_record),
@@ -504,7 +520,14 @@ Your task / 해야 할 일:
 - planner가 직접 작성해야 하는 값은 asset_id, cve_id, question 입니다.
 - 따라서 question은 asset_info에 이미 들어 있는 일반 문맥을 반복 설명하기보다, 그 문맥을 바탕으로 확인이 필요한 직접 관측 사실에 집중해서 작성하십시오.
 - 질문은 반드시 좁고 관측 가능 및 구체적이어야 하며, 자산 수집 에이전트가 실제 명령/설정/파일/프로세스 확인으로 답할 수 있어야 합니다.
+- 여러 사실을 한 번에 묻지 말고, 답변이 모호해질 수 있으면 질문을 더 잘게 나누십시오.
 
+판단할 때 주의 사항
+- 특정 기능의 사용 여부나 취약 동작 가능성을 판단할 때, 설정 파일 안에 해당 기능이 직접적으로 명시되어 있는지만 기준으로 삼지 마십시오.
+- 관련 소프트웨어의 버전, 실제 실행 경로, 외부 입력이 기능이 사용되는 처리 흐름까지 도달하는지 여부, 그리고 기능이 비활성화되었거나 제거되었다는 근거를 함께 종합해서 판단하십시오.
+- 즉, 설정 파일에 특정 키워드가 없다는 이유만으로 곧바로 안전하거나 비활성이라고 결론내리지 말고, 기본 동작 상태와 입력 도달성, 비활성화 근거 유무를 함께 보십시오.
+- 반대로 기능이 차단되었거나 제거되었거나 안전한 대체 동작으로 제한되었다는 명시적 근거가 있으면 그 사실을 우선 사용하십시오.
+- selected_action 에서 주의 사항은 꼭 읽고 지켜주세요.
 
 Output schema / 출력 스키마:
 {
@@ -613,6 +636,10 @@ Field definitions / 필드 정의
     - apply_patch_planned: 정식 패치는 하되 계획된 시점에 적용
     - apply_mitigation_now: 지금은 임시 완화 조치를 우선 적용
     - human_review: 근거 부족 또는 불확실성 때문에 사람 검토 필요
+  - 주의 사항:
+    - patch_feasible이 unknown이면 apply_patch_now를 선택하지 말고 human_review 또는 apply_mitigation_now로 기울어라
+    - 위험도와 패치 가능성은 별도로 판단하라
+    - 위험도가 높아도 운영 영향 불확실성만으로 즉시 패치를 정당화하지 마라
 
 - decision
   - 의미: selected_action을 사람이 바로 이해할 수 있는 실행 문장으로 풀어쓴 최종 결론
@@ -630,7 +657,17 @@ Field definitions / 필드 정의
 
 - reason_summary
   - 의미: 최종 판단 근거를 요약하는 설명입니다.
-  - 작성 방식: 한국어로 작성하십시오. 1~3문장 정도로 간결하고, 입력 자료와 추가 확인 결과에 기반해 쓰십시오. 추측성 문장은 피하십시오.
+  - 작성 방식: 한국어로 작성하십시오. 이 필드는 단순히 "위험도가 높아 패치가 필요하다"를 반복하는 항목이 아니라, 왜 이 자산에 이 전략을 선택했는지 운영 관점에서 설명하는 항목입니다.
+  - 반드시 아래 내용을 포함하십시오.
+    - 변경 대상: change_surface 분류명만 적지 말고, 실제로 무엇을 무엇으로 바꾸는지 구체적으로 설명하십시오.
+    - 실제 적용 방식: deployment_requirement 분류명만 적지 말고, 서비스 재시작, 애플리케이션 재배포, 재빌드 후 재배포, 설정 변경 후 재기동 등 실제 운영 절차를 한글 문장으로 풀어서 설명하십시오.
+    - 적용 가능성 근거: 왜 지금 이 전략이 가능한지 또는 제약이 있는지 자산 근거를 포함하십시오. 커스텀 모듈 사용 여부, 표준 패키지 사용 여부, 라이브러리 위치 확인 여부, 실행 중 classpath 확인 여부, 별도 호환성 제약 확인 여부 등 실제 자산에서 확인된 사실을 기반으로 설명하십시오. 근거가 없는 내용은 추정하지 말고 `확인되지 않음`이라고 명시하십시오.
+    - 임시 완화 대비 최종 조치 우선순위: 임시 완화가 가능한지 설명하고, 가능하더라도 왜 최종 패치가 우선인지 또는 왜 임시 완화가 우선인지 운영 관점에서 설명하십시오.
+  - 금지:
+    - 위험도만 반복하는 문장
+    - os_package, app_dependency, service_restart, redeploy 같은 분류명만 단독으로 나열하는 문장
+    - 무엇을 어디서 어디로 바꾸는지 없이 "즉시 패치 가능"이라고만 쓰는 문장
+    - 근거 없는 호환성 추정
 
 - validation_checks
   - 의미: 선택한 조치 후 확인해야 하는 검증 항목 목록입니다.
@@ -720,7 +757,7 @@ def _call_planner(strategy_context: dict[str, Any]) -> str:
 
     if Agent is not None:
         agent = Agent(
-            model=DEFAULT_MODEL_ID,
+            model=_build_bedrock_model(),
             system_prompt=system_prompt,
             tools=[query_asset_fact],
         )

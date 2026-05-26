@@ -23,7 +23,7 @@ def _write_json(handler: BaseHTTPRequestHandler, status: int, payload: dict) -> 
 
 
 class AgentCoreHandler(BaseHTTPRequestHandler):
-    server_version = "PatchImpactAgent/1.0"
+    server_version = "PatchStrategyAgent/1.0"
 
     def log_message(self, format: str, *args) -> None:  # noqa: A003
         return

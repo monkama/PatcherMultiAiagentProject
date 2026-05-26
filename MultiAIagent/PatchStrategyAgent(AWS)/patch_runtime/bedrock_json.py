@@ -6,7 +6,7 @@ from typing import Any
 
 
 DEFAULT_BEDROCK_MODEL = (
-    os.environ.get("PATCH_IMPACT_BEDROCK_MODEL")
+    os.environ.get("PATCH_IMPACT_BEDROCK_MODEL_ID")
     or os.environ.get("BEDROCK_MODEL_ID")
     or "global.anthropic.claude-haiku-4-5-20251001-v1:0"
 )

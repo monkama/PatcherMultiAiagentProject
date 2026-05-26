@@ -45,7 +45,7 @@ NETWORK_MODE="${NETWORK_MODE:-PUBLIC}"
 IDLE_TIMEOUT="${IDLE_TIMEOUT:-3600}"
 MAX_LIFETIME="${MAX_LIFETIME:-28800}"
 DESCRIPTION="${DESCRIPTION:-patch impact agent container runtime}"
-RUNTIME_NAME="${RUNTIME_NAME:-patch_impact_agent2}"
+RUNTIME_NAME="${RUNTIME_NAME:-patch_strategy_agent}"
 RUNTIME_ID="${RUNTIME_ID:-}"
 RUNTIME_ARN="${RUNTIME_ARN:-}"
 CONTAINER_URI="${CONTAINER_URI:-}"
@@ -73,7 +73,7 @@ usage() {
 
 예시:
   ./deploy_container_runtime.sh create
-  ./deploy_container_runtime.sh update --runtime-arn arn:aws:bedrock-agentcore:ap-northeast-2:430155298344:runtime/patch_impact_agent2-2Zl5H0Gf4T
+  ./deploy_container_runtime.sh update --runtime-arn arn:aws:bedrock-agentcore:ap-northeast-2:430155298344:runtime/patch_strategy_agent-2Zl5H0Gf4T
 EOF
 }
 

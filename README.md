@@ -163,8 +163,8 @@ PacherAgents/
 │   ├── OchestratorAgent(AWS)/
 │   ├── VulnCollectorAgent(AWS)/
 │   ├── Infra_matchingAgent(AWS)/
-│   ├── risk_evaluation_agent/
-│   ├── PatchImpactAgent(AWS)/
+│   ├── Risk_evaluation_agent(AWS)/
+│   ├── PatchStrategyAgent(AWS)/
 │   ├── PatchExecAgent(AWS)/
 │   ├── OchestraResult/
 │   ├── Conversationlog/
@@ -225,7 +225,7 @@ PacherAgents/
 
 즉 뒤 단계가 바로 쓸 수 있는 취약점 payload를 만드는 역할입니다.
 
-### `PatchImpactAgent(AWS)`
+### `PatchStrategyAgent(AWS)`
 
 패치 전략 판단 runtime 소스입니다.
 
@@ -561,14 +561,14 @@ patch 최종 결론은 `patch_strategy_result.json`의 아래 필드를 우선 �
 - `MultiAIagent/OchestratorAgent(AWS)`
 - `MultiAIagent/VulnCollectorAgent(AWS)`
 - `MultiAIagent/Infra_matchingAgent(AWS)`
-- `MultiAIagent/risk_evaluation_agent`
+- `MultiAIagent/Risk_evaluation_agent(AWS)`
 - `MultiAIagent/PatchExecAgent(AWS)`
 
 보통 각 폴더의 `build_package.sh`로 `dist/deployment_package.zip`을 만듭니다.
 
 ### Container runtime
 
-- `MultiAIagent/PatchImpactAgent(AWS)`
+- `MultiAIagent/PatchStrategyAgent(AWS)`
 
 이쪽은 ECR + AgentCore container runtime 기준입니다.
 

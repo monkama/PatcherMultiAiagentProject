@@ -10,7 +10,7 @@
       "Resource": "*"
     },
     {
-      "Sid": "EcrPullPatchImpactImage",
+      "Sid": "EcrPullPatchStrategyImage",
       "Effect": "Allow",
       "Action": [
         "ecr:BatchCheckLayerAvailability",
