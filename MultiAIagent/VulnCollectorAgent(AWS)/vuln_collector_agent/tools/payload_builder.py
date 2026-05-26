@@ -11,6 +11,10 @@ try:
     from strands import Agent
 except ImportError:
     Agent = None
+try:
+    from strands.models.bedrock import BedrockModel
+except ImportError:
+    BedrockModel = None
 
 try:
     from .cve_fetcher import fetch_selected_raw_cve_record
@@ -28,11 +32,14 @@ _PROMPTS_DIR = _BASE_DIR / "prompts"
 _RISK_REFERENCE_PROMPT_PATH = _PROMPTS_DIR / "risk_reference_system_prompt.txt"
 _OPERATIONAL_DEPENDENCY_PROMPT_PATH = _PROMPTS_DIR / "operational_dependency_system_prompt.txt"
 _DEFAULT_BEDROCK_MODEL = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+_DEFAULT_BEDROCK_REGION = "ap-northeast-2"
 
 _RISK_ASSESSMENT_FIELD_DESCRIPTIONS = {
     "records": "CVE별 취약점 참고 정보 목록입니다. 이 payload는 최종 위험도 평가 결과가 아니라, 위험도 평가 에이전트가 자산 정보와 결합하기 위한 취약점 기준 정보입니다.",
     "records[].cve_id": "CVE 식별자입니다. 취약점과 자산 평가 결과를 연결하는 기본 키입니다.",
     "records[].title": "취약점의 짧은 제목입니다. 사람이 빠르게 이해하기 위한 표시용 요약입니다.",
+    "records[].cvss": "원본 CVE에서 수집한 CVSS 정보입니다. risk evaluation 에이전트가 base_cvss 기준점으로 사용합니다.",
+    "records[].cvss.score": "취약점 기준 CVSS 점수입니다.",
     "records[].affected": "무엇이 영향을 받는지 설명하는 문자열입니다. 영향받는 제품, 컴포넌트, 버전 범위, 수정 버전, 영향받지 않는 유사 artifact를 포함합니다.",
     "records[].exploit_conditions": "어떤 조건에서 취약점이 악용되는지 설명하는 문자열입니다. 공격자가 제어해야 하는 입력, 필요한 설정, 취약 코드 경로, 네트워크 조건, 악용 성공 시 결과를 포함합니다.",
     "records[].asset_checks": "위험도 평가 에이전트가 자산 수집 결과에서 확인해야 할 체크리스트입니다. 자산 기준 위험도 조정의 핵심 필드입니다.",
@@ -259,6 +266,15 @@ def _bedrock_model_id() -> str:
     return (os.getenv("BEDROCK_MODEL_ID") or _DEFAULT_BEDROCK_MODEL).strip()
 
 
+def _bedrock_region() -> str:
+    return (
+        os.getenv("AWS_REGION")
+        or os.getenv("AWS_DEFAULT_REGION")
+        or os.getenv("DEFAULT_REGION")
+        or _DEFAULT_BEDROCK_REGION
+    ).strip()
+
+
 def _load_risk_reference_prompt() -> str:
     return _RISK_REFERENCE_PROMPT_PATH.read_text(encoding="utf-8").strip()
 
@@ -268,9 +284,9 @@ def _load_operational_dependency_prompt() -> str:
 
 
 def _require_strands() -> None:
-    if Agent is None:
+    if Agent is None or BedrockModel is None:
         raise RuntimeError(
-            "strands-agents is required for vulnerability payload generation. "
+            "strands-agents with Bedrock model support is required for vulnerability payload generation. "
             "Install it and rebuild the runtime before running this agent."
         )
 
@@ -319,11 +335,16 @@ def _run_structured_agent(
 ) -> BaseModel:
     _require_strands()
     assert Agent is not None
+    assert BedrockModel is not None
 
     agent = Agent(
         system_prompt=system_prompt,
         tools=_agent_tools(evidence_mode),
-        model=_bedrock_model_id(),
+        model=BedrockModel(
+            region_name=_bedrock_region(),
+            model_id=_bedrock_model_id(),
+            temperature=0,
+        ),
     )
     response = agent(
         f"{message}\n\n{_evidence_mode_message(evidence_mode)}",

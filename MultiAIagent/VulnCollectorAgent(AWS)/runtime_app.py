@@ -26,12 +26,16 @@ def invoke(payload: dict | None) -> dict:
 
     opencve_api_key = str(payload.get("OPENCVE_API_KEY") or "").strip()
     bedrock_model_id = str(payload.get("BEDROCK_MODEL_ID") or "").strip()
+    region = str(payload.get("region") or payload.get("AWS_REGION") or payload.get("AWS_DEFAULT_REGION") or "").strip()
     cve_ids = _normalize_cve_ids(payload.get("cve_ids") or payload.get("CVE_IDS") or payload.get("cve_id"))
 
     if opencve_api_key:
         os.environ["OPENCVE_API_KEY"] = opencve_api_key
     if bedrock_model_id:
         os.environ["BEDROCK_MODEL_ID"] = bedrock_model_id
+    if region:
+        os.environ["AWS_REGION"] = region
+        os.environ["AWS_DEFAULT_REGION"] = region
 
     result = run_vulnerability_collection(
         cve_ids=cve_ids,
