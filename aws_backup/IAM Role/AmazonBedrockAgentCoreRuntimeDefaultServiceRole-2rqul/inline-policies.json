@@ -1,0 +1,105 @@
+==================================================
+Inline Policy Name: AgentCoreBedrockConverseMarketplace
+==================================================
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "AllowBedrockConverseAndInvoke",
+            "Effect": "Allow",
+            "Action": [
+                "bedrock:Converse",
+                "bedrock:ConverseStream",
+                "bedrock:InvokeModel",
+                "bedrock:InvokeModelWithResponseStream"
+            ],
+            "Resource": [
+                "arn:aws:bedrock:*::foundation-model/*",
+                "arn:aws:bedrock:ap-northeast-2:*:inference-profile/*",
+                "arn:aws:bedrock:ap-northeast-2:*:application-inference-profile/*"
+            ]
+        },
+        {
+            "Sid": "AllowMarketplaceSubscriptionChecks",
+            "Effect": "Allow",
+            "Action": [
+                "aws-marketplace:ViewSubscriptions",
+                "aws-marketplace:Subscribe"
+            ],
+            "Resource": "*"
+        }
+    ]
+}
+==================================================
+Inline Policy Name: AllowSSMPatchExecution
+==================================================
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "AllowSSMSendCommand",
+            "Effect": "Allow",
+            "Action": [
+                "ssm:SendCommand"
+            ],
+            "Resource": [
+                "arn:aws:ec2:ap-northeast-2:842337469411:instance/*",
+                "arn:aws:ssm:ap-northeast-2:*:document/AWS-RunShellScript"
+            ]
+        },
+        {
+            "Sid": "AllowSSMListCommands",
+            "Effect": "Allow",
+            "Action": [
+                "ssm:ListCommands",
+                "ssm:ListCommandInvocations"
+            ],
+            "Resource": "*"
+        }
+    ]
+}
+==================================================
+Inline Policy Name: PatchImpactEcrPull
+==================================================
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "EcrAuthorizationToken",
+            "Effect": "Allow",
+            "Action": [
+                "ecr:GetAuthorizationToken"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "EcrPullPatchImpactImage",
+            "Effect": "Allow",
+            "Action": [
+                "ecr:BatchCheckLayerAvailability",
+                "ecr:BatchGetImage",
+                "ecr:GetDownloadUrlForLayer"
+            ],
+            "Resource": "arn:aws:ecr:ap-northeast-2:*:repository/patch-impact-agent"
+        }
+    ]
+}
+==================================================
+Inline Policy Name: PatchImpactInvokeAssetRuntime
+==================================================
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "AllowInvokeAssetMatchingRuntime",
+            "Effect": "Allow",
+            "Action": [
+                "bedrock-agentcore:InvokeAgentRuntime"
+            ],
+            "Resource": [
+                "arn:aws:bedrock-agentcore:ap-northeast-2:*:runtime/*",
+                "arn:aws:bedrock-agentcore:ap-northeast-2:*:runtime/*/runtime-endpoint/DEFAULT"
+            ]
+        }
+    ]
+}

@@ -1,0 +1,124 @@
+==================================================
+Policy ARN: arn:aws:iam::842337469411:policy/service-role/AmazonBedrockAgentCoreRuntimeExecutionPolicy_22grc
+==================================================
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "logs:DescribeLogStreams",
+                "logs:CreateLogGroup"
+            ],
+            "Resource": [
+                "arn:aws:logs:ap-northeast-2:842337469411:log-group:/aws/bedrock-agentcore/runtimes/*"
+            ]
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "logs:DescribeLogGroups"
+            ],
+            "Resource": [
+                "arn:aws:logs:ap-northeast-2:842337469411:log-group:*"
+            ]
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "logs:CreateLogStream",
+                "logs:PutLogEvents"
+            ],
+            "Resource": [
+                "arn:aws:logs:ap-northeast-2:842337469411:log-group:/aws/bedrock-agentcore/runtimes/*:log-stream:*"
+            ]
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "xray:PutTraceSegments",
+                "xray:PutTelemetryRecords",
+                "xray:GetSamplingRules",
+                "xray:GetSamplingTargets"
+            ],
+            "Resource": [
+                "*"
+            ]
+        },
+        {
+            "Effect": "Allow",
+            "Resource": "*",
+            "Action": "cloudwatch:PutMetricData",
+            "Condition": {
+                "StringEquals": {
+                    "cloudwatch:namespace": "bedrock-agentcore"
+                }
+            }
+        },
+        {
+            "Sid": "BedrockModelInvocation",
+            "Effect": "Allow",
+            "Action": [
+                "bedrock:InvokeModel",
+                "bedrock:InvokeModelWithResponseStream"
+            ],
+            "Resource": [
+                "arn:aws:bedrock:*::foundation-model/*",
+                "arn:aws:bedrock:ap-northeast-2:842337469411:*"
+            ]
+        },
+        {
+            "Sid": "EFSClientAccess",
+            "Effect": "Allow",
+            "Action": [
+                "elasticfilesystem:ClientMount",
+                "elasticfilesystem:ClientWrite"
+            ],
+            "Resource": "arn:aws:elasticfilesystem:ap-northeast-2:842337469411:file-system/*",
+            "Condition": {
+                "ArnLike": {
+                    "elasticfilesystem:AccessPointArn": "arn:aws:elasticfilesystem:ap-northeast-2:842337469411:access-point/*"
+                }
+            }
+        },
+        {
+            "Sid": "EFSDescribe",
+            "Effect": "Allow",
+            "Action": [
+                "elasticfilesystem:DescribeAccessPoints",
+                "elasticfilesystem:DescribeMountTargets"
+            ],
+            "Resource": [
+                "arn:aws:elasticfilesystem:ap-northeast-2:842337469411:file-system/*",
+                "arn:aws:elasticfilesystem:ap-northeast-2:842337469411:access-point/*"
+            ]
+        },
+        {
+            "Sid": "S3FilesClientAccess",
+            "Effect": "Allow",
+            "Action": [
+                "s3files:ClientMount",
+                "s3files:ClientWrite",
+                "s3files:ClientRootAccess"
+            ],
+            "Resource": "arn:aws:s3files:ap-northeast-2:842337469411:file-system/*",
+            "Condition": {
+                "ArnLike": {
+                    "s3files:AccessPointArn": "arn:aws:s3files:ap-northeast-2:842337469411:file-system/*/access-point/*"
+                }
+            }
+        },
+        {
+            "Sid": "S3FilesDescribe",
+            "Effect": "Allow",
+            "Action": [
+                "s3files:GetAccessPoint",
+                "s3files:ListMountTargets"
+            ],
+            "Resource": [
+                "arn:aws:s3files:ap-northeast-2:842337469411:file-system/*",
+                "arn:aws:s3files:ap-northeast-2:842337469411:file-system/*/access-point/*"
+            ]
+        }
+    ]
+}
