@@ -162,7 +162,7 @@ PacherAgents/
 ├── MultiAIagent/
 │   ├── OchestratorAgent(AWS)/
 │   ├── VulnCollectorAgent(AWS)/
-│   ├── Infra_matchingAgent/
+│   ├── Infra_matchingAgent(AWS)/
 │   ├── risk_evaluation_agent/
 │   ├── PatchImpactAgent(AWS)/
 │   ├── PatchExecAgent(AWS)/
@@ -560,7 +560,7 @@ patch 최종 결론은 `patch_strategy_result.json`의 아래 필드를 우선 �
 
 - `MultiAIagent/OchestratorAgent(AWS)`
 - `MultiAIagent/VulnCollectorAgent(AWS)`
-- `MultiAIagent/Infra_matchingAgent`
+- `MultiAIagent/Infra_matchingAgent(AWS)`
 - `MultiAIagent/risk_evaluation_agent`
 - `MultiAIagent/PatchExecAgent(AWS)`
 

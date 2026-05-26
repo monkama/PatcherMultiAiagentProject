@@ -3,7 +3,7 @@
 취약점 자동 위험도 판단 시스템의 **자산 매칭 에이전트**입니다.
 VPC 내 3-Tier 아키텍처(web/app/db)에서 EC2 인스턴스를 자동 탐색하고,
 각 인스턴스의 소프트웨어·네트워크·보안 컨텍스트를 수집해 `infra_context.json`으로 저장합니다.
-로컬 PC에서 AWS SSM을 통해 원격으로 실행되며, PEM 키 없이 동작합니다.
+로컬 PC 또는 AgentCore Runtime에서 AWS SSM을 통해 원격으로 실행되며, PEM 키 없이 동작합니다.
 
 ---
 
@@ -56,7 +56,7 @@ VPC 내 3-Tier 아키텍처(web/app/db)에서 EC2 인스턴스를 자동 탐색�
         ├─ AWS EC2 API  : Security Group 분석 → tier-to-tier reachability
         │
         └─ (인스턴스마다) SSM send-command
-               └─ Gemini Agent (Function Calling 루프)
+               └─ Strands Agent + Amazon Bedrock (Function Calling 루프)
                      ├─ run_command  : shell 명령 원격 실행
                      ├─ read_file   : 파일 읽기
                      └─ save_result : 수집 완료 → asset_info 반환
@@ -71,7 +71,6 @@ VPC 내 3-Tier 아키텍처(web/app/db)에서 EC2 인스턴스를 자동 탐색�
 ### 모드 1 — VPC 자동 탐색 (권장)
 
 ```bash
-export GEMINI_API_KEY="your-api-key"
 python3 agent_extract_asset.py \
     --auto-discover \
     --vpc-id vpc-095126a9a0924a7e2 \
@@ -242,7 +241,7 @@ python3 agent_extract_asset.py \
 
 ### 수집 모드 Phase
 
-Gemini Agent가 아래 4단계를 자율적으로 판단하며 수행합니다.
+Strands Agent가 Amazon Bedrock 모델을 사용해 아래 4단계를 자율적으로 판단하며 수행합니다.
 
 | Phase | 수집 내용            | 대표 명령어                                                                      |
 | ----- | -------------------- | -------------------------------------------------------------------------------- |
@@ -251,7 +250,7 @@ Gemini Agent가 아래 4단계를 자율적으로 판단하며 수행합니다.
 | 3     | 보안 컨텍스트        | IMDSv2 토큰 발급 → `iam/security-credentials/`, `ps -eo user,comm`, `getenforce` |
 | 4     | 데이터 분류          | IMDS `/tags/instance/` 조회                                                      |
 
-에이전트에게 명령어 레시피를 주지 않습니다. 목표와 결과물 스키마만 제시하고, 탐지 방법은 AI가 자율적으로 결정합니다.
+에이전트에게 명령어 레시피를 고정으로 주지 않습니다. 목표와 결과물 스키마만 제시하고, 필요한 수집 순서와 도구 호출은 Strands Agent가 Amazon Bedrock 모델을 통해 결정합니다.
 
 > **실제 탐지 사례**: nginx가 PATH에 없어 `nginx -v`가 실패하자, 에이전트가 `ps aux | grep nginx`로 프로세스를 찾고 실행 경로(`/usr/local/nginx/sbin/nginx`)에서 직접 버전을 조회했습니다. log4j는 Java 프로세스의 classpath에서 `log4j-core-2.14.1.jar` 파일명을 파싱해 탐지했습니다.
 
@@ -266,15 +265,14 @@ Gemini Agent가 아래 4단계를 자율적으로 판단하며 수행합니다.
 
 ### 사용 모델 및 Fallback
 
-| 우선순위 | 모델                    | 비고                      |
-| -------- | ----------------------- | ------------------------- |
-| 1        | `gemini-2.5-pro`        | 기본 (가장 안정적)        |
-| 2        | `gemini-2.5-flash`      | 503 또는 404 시 자동 전환 |
-| 3        | `gemini-2.5-flash-lite` | 최후 fallback             |
+| 우선순위 | 모델 소스 | 비고 |
+| -------- | --------- | ---- |
+| 1        | `ASSET_BEDROCK_MODEL_ID` | 자산 매칭 에이전트 전용 모델 지정 |
+| 2        | `BEDROCK_MODEL_ID` | 공통 모델 설정 재사용 |
+| 3        | 내장 기본값 | 지정이 없을 때 `claude-sonnet` 계열 기본값 사용 |
 
-- 세션 내 첫 성공 모델을 캐시하여 이후 모든 인스턴스에서 재사용
-- 503은 10초 후 재시도, 404는 즉시 다음 모델로 전환
-- Gemini 응답에 HTML/XML이 섞이면 자동으로 짧은 마커로 치환 (`MALFORMED_FUNCTION_CALL` 방지)
+- 세션 내에서 선택된 Bedrock 모델 설정을 재사용합니다.
+- Bedrock 모델 응답에 HTML/XML이 섞이면 자동으로 짧은 마커로 치환 (`MALFORMED_FUNCTION_CALL` 방지)
 
 ---
 
@@ -304,9 +302,10 @@ build_reachability(instances, region)
 | 파일                     | 설명                                                        |
 | ------------------------ | ----------------------------------------------------------- |
 | `agent_extract_asset.py` | 자산 매칭 에이전트 본체. 수집/질의/auto-discover 모드 지원. |
-| `payload.json`           | 취약점 수집 에이전트로부터 받는 CVE 타겟 입력.              |
+| `runtime_app.py`         | AgentCore Runtime 진입점. `collect` / `query` / `auto_discover` 라우팅 담당. |
+| `asset_matching_payload.json` | 취약점 수집 에이전트로부터 받는 자산 탐색용 입력 예시. |
+| `asset_info.json`        | 단일 자산 수집 결과 예시.                                   |
 | `infra_context.json`     | 수집 결과 출력 (VPC 전체 자산 + reachability).              |
-| `.env`                   | `GEMINI_API_KEY` 저장 (절대 git 커밋 금지).                 |
 
 ---
 
@@ -314,12 +313,13 @@ build_reachability(instances, region)
 
 | 항목          | 내용                                                                                                                                                   |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Python        | 3.9 이상                                                                                                                                               |
-| 필수 패키지   | `google-genai`                                                                                                                                         |
-| API 키        | `GEMINI_API_KEY` 환경변수                                                                                                                              |
+| Python        | 3.12 이상 권장                                                                                                                                        |
+| 필수 패키지   | `strands-agents`, `boto3`, `bedrock-agentcore`                                                                                                        |
+| 모델 설정     | 선택적 `ASSET_BEDROCK_MODEL_ID` 또는 공통 `BEDROCK_MODEL_ID`                                                                                          |
 | AWS 자격증명  | `~/.aws/credentials` 또는 환경변수 (`AWS_ACCESS_KEY_ID` 등)                                                                                            |
 | EC2 IAM 권한  | `AmazonSSMManagedInstanceCore` (EC2 역할에 연결)                                                                                                       |
 | 로컬 IAM 권한 | `ssm:SendCommand`, `ssm:GetCommandInvocation`, `ec2:DescribeInstances`, `ec2:DescribeSubnets`, `ec2:DescribeRouteTables`, `ec2:DescribeSecurityGroups` |
+| Bedrock 권한  | 선택한 Bedrock 모델에 대한 Invoke 권한                                                                                                                 |
 
 ---
 
@@ -329,13 +329,13 @@ build_reachability(instances, region)
 
 ```bash
 # 패키지 설치
-pip3 install google-genai
-
-# API 키 설정
-export GEMINI_API_KEY="your-gemini-api-key"
+pip3 install -r requirements.txt
 
 # AWS 자격증명 확인
 aws sts get-caller-identity
+
+# 선택: 사용할 Bedrock 모델 고정
+export ASSET_BEDROCK_MODEL_ID="global.anthropic.claude-sonnet-4-5-20250929-v1:0"
 ```
 
 ### VPC 전체 자동 수집
@@ -382,5 +382,5 @@ python3 agent_extract_asset.py \
 - `.env` 파일은 절대 git 커밋 금지 (`.gitignore` 필수).
 - EC2 인스턴스에 `AmazonSSMManagedInstanceCore` IAM 역할이 연결되어 있어야 SSM으로 원격 실행이 가능합니다.
 - IMDSv2 강제 환경에서는 에이전트가 스스로 토큰을 발급하여 IMDS를 호출합니다.
-- Gemini 503/404 오류는 자동 재시도 + 모델 fallback 로직으로 처리됩니다.
+- Bedrock 호출 실패 시에는 재시도 또는 상위 호출자 레벨의 예외 처리 흐름을 따릅니다.
 - `run_command` 도구는 `rm`, `kill`, `reboot` 등 파괴적 명령어를 정규식으로 차단합니다.

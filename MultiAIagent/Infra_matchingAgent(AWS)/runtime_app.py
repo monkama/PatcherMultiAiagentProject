@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AgentCore Runtime 진입점 — 자산 매칭 에이전트 (Bedrock + Claude Haiku 4.5).
+"""AgentCore Runtime 진입점 — 자산 매칭 에이전트 (AgentCore + Amazon Bedrock).
 
 로컬 개발:
     python runtime_app.py

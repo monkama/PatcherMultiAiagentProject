@@ -2,8 +2,8 @@
 """
 자산 매칭 에이전트 (AI-Agent 기반).
 
-AWS Bedrock (Claude Haiku 4.5, Tool Use) 로 EC2 인스턴스 내부를 조사하여
-취약점 평가에 필요한 자산/보안/네트워크/운영 컨텍스트를 수집한다.
+AWS AgentCore Runtime 위에서 Amazon Bedrock + Strands Tool Use로 EC2 인스턴스
+내부를 조사하여 취약점 평가에 필요한 자산/보안/네트워크/운영 컨텍스트를 수집한다.
 
 두 가지 모드를 지원한다.
   1. 수집 모드 (--payload)
@@ -34,18 +34,18 @@ from typing import Optional
 import boto3
 from botocore.exceptions import ClientError
 from strands import Agent, tool
+from strands.models.bedrock import BedrockModel
 
 
 # ---------------------------------------------------------------------------
 # 설정
 # ---------------------------------------------------------------------------
 
-# Claude Haiku 4.5 (글로벌 inference profile — 자동 cross-region 라우팅)
-BEDROCK_MODEL_ID = os.environ.get(
-    "BEDROCK_MODEL_ID",
-    "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+BEDROCK_MODEL_ID = (
+    os.environ.get("ASSET_BEDROCK_MODEL_ID")
+    or os.environ.get("BEDROCK_MODEL_ID")
+    or "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
 )
-BEDROCK_REGION = os.environ.get("BEDROCK_REGION", "ap-northeast-2")
 COMMAND_TIMEOUT = 30
 TOOL_OUTPUT_LIMIT = 2000  # LLM 에 돌려줄 tool 응답 최대 길이
 
@@ -63,6 +63,19 @@ _BLOCKED = re.compile(
 
 # 리전별 boto3 클라이언트 캐시 — 로컬/AgentCore Runtime 모두 동일하게 동작
 _boto3_clients: dict = {}
+
+
+def _build_bedrock_model() -> BedrockModel:
+    region = (
+        os.environ.get("AWS_REGION")
+        or os.environ.get("AWS_DEFAULT_REGION")
+        or DEFAULT_REGION
+    )
+    return BedrockModel(
+        region_name=region,
+        model_id=BEDROCK_MODEL_ID,
+        temperature=0,
+    )
 
 
 def _client(service: str, region: str):
@@ -278,19 +291,31 @@ def save_result(
 
     Args:
         installed_software: payload 대상 소프트웨어 탐지 결과 — 각 항목은
-            {"vendor": str, "product": str, "version": str, "cpe": str, "source_path"?: str}.
+            {"vendor": str, "product": str, "version": str, "source_path"?: str}.
             대상 소프트웨어가 없으면 빈 리스트 [].
         network_context: 네트워크 컨텍스트 —
-            {"public_ip": str, "listening_ports": list[int], "is_internet_facing": bool}.
+            {"public_ip": str, "listening_ports": list[int]}.
         security_context: 보안 컨텍스트 —
             {"attached_iam_role": str, "running_as_root": list[str],
              "imds_v2_enforced": bool, "selinux_enforced": bool}.
         data_classification: 태그 기반 데이터 분류 (PII / Payment / Internal / unknown).
     """
+    normalized_software = []
+    for item in installed_software or []:
+        if not isinstance(item, dict):
+            continue
+        normalized_software.append({
+            "vendor": str(item.get("vendor") or "").strip(),
+            "product": str(item.get("product") or "").strip(),
+            "version": str(item.get("version") or "").strip(),
+            "source_path": str(item.get("source_path") or "").strip(),
+        })
+
     _runtime_state["collect_result"] = {
-        "installed_software": installed_software or [],
-        "network_context": network_context or {
-            "public_ip": "", "listening_ports": [], "is_internet_facing": False,
+        "installed_software": normalized_software,
+        "network_context": {
+            "public_ip": str((network_context or {}).get("public_ip") or "").strip(),
+            "listening_ports": list((network_context or {}).get("listening_ports") or []),
         },
         "security_context": security_context or {
             "attached_iam_role": "", "running_as_root": [],
@@ -425,14 +450,13 @@ def discover_vpc_instances(vpc_id: str, region: str) -> list:
 _subnet_cache: dict = {}
 
 
-def classify_subnet(subnet_id: str, region: str) -> str:
-    """서브넷의 라우트 테이블로 public/private/isolated 판정."""
+def describe_subnet_connectivity(subnet_id: str, region: str) -> dict:
+    """서브넷 라우트 기준 연결 성격을 구조화해 반환한다."""
     if subnet_id in _subnet_cache:
         return _subnet_cache[subnet_id]
 
     ec2 = _client("ec2", region)
 
-    # 1) 서브넷에 명시적으로 연결된 라우트 테이블
     try:
         data = ec2.describe_route_tables(Filters=[
             {"Name": "association.subnet-id", "Values": [subnet_id]},
@@ -441,7 +465,6 @@ def classify_subnet(subnet_id: str, region: str) -> str:
         raise RuntimeError(f"ec2:DescribeRouteTables 실패: {e}")
     tables = data.get("RouteTables", [])
 
-    # 2) 없으면 VPC의 main 라우트 테이블
     if not tables:
         try:
             subnet_data = ec2.describe_subnets(SubnetIds=[subnet_id])
@@ -449,8 +472,14 @@ def classify_subnet(subnet_id: str, region: str) -> str:
             raise RuntimeError(f"ec2:DescribeSubnets 실패: {e}")
         subnets = subnet_data.get("Subnets", [])
         if not subnets:
-            _subnet_cache[subnet_id] = "unknown"
-            return "unknown"
+            result = {
+                "network_exposure": "unknown",
+                "subnet_route_type": "unknown",
+                "internet_route_via_igw": False,
+                "internet_egress_via_nat": False,
+            }
+            _subnet_cache[subnet_id] = result
+            return result
         vpc_id = subnets[0].get("VpcId", "")
         try:
             rt_data = ec2.describe_route_tables(Filters=[
@@ -466,13 +495,34 @@ def classify_subnet(subnet_id: str, region: str) -> str:
     has_nat = any(str(r.get("NatGatewayId", "")).startswith("nat-") for r in routes)
 
     if has_igw:
-        result = "public"
+        result = {
+            "network_exposure": "public",
+            "subnet_route_type": "public",
+            "internet_route_via_igw": True,
+            "internet_egress_via_nat": False,
+        }
     elif has_nat:
-        result = "private"
+        result = {
+            "network_exposure": "private",
+            "subnet_route_type": "private_nat",
+            "internet_route_via_igw": False,
+            "internet_egress_via_nat": True,
+        }
     else:
-        result = "isolated"
+        result = {
+            "network_exposure": "isolated",
+            "subnet_route_type": "isolated",
+            "internet_route_via_igw": False,
+            "internet_egress_via_nat": False,
+        }
+
     _subnet_cache[subnet_id] = result
     return result
+
+
+def classify_subnet(subnet_id: str, region: str) -> str:
+    """서브넷의 라우트 테이블로 public/private/isolated 판정."""
+    return str(describe_subnet_connectivity(subnet_id, region).get("network_exposure", "unknown"))
 
 
 def extract_tier(tags: dict, name: str) -> str:
@@ -498,6 +548,67 @@ def default_data_classification(tier: str) -> str:
         "app": "Confidential",
         "db":  "PII",
     }.get(tier, "unknown")
+
+
+def build_asset_result_meta(result_kind: str) -> dict:
+    """자산 수집 결과를 읽는 후속 에이전트를 위한 상단 설명 블록."""
+    if result_kind == "single_asset":
+        return {
+            "result_type": "asset_info",
+            "payload_purpose": "단일 자산에 대해 설치 소프트웨어, 버전, 네트워크 노출, 보안 컨텍스트를 수집한 결과입니다. 다른 에이전트가 특정 CVE와의 연관성을 판단할 때 사용합니다.",
+            "field_descriptions": {
+                "asset_id": "자산 식별자입니다. 보통 EC2 인스턴스 ID입니다.",
+                "hostname": "자산의 호스트명입니다.",
+                "metadata": "환경, 노출 수준, 데이터 분류 같은 자산 메타데이터입니다.",
+                "network_context": "public IP, listening port 같은 네트워크 정보입니다.",
+                "security_context": "IAM role, root 권한 실행, IMDSv2, SELinux 같은 보안 정보입니다.",
+                "os_info": "운영체제 벤더/버전 정보입니다.",
+                "installed_software": "탐지된 주요 소프트웨어와 버전 정보입니다.",
+            },
+        }
+
+    return {
+        "result_type": "infra_context",
+        "payload_purpose": "VPC 내 자산들을 자동 탐색해 계층, 네트워크 노출, NAT/IGW 연결성, 운영체제, 보안 컨텍스트, 설치 소프트웨어 정보를 구조화한 결과입니다. 위험도 평가와 패치 전략 에이전트가 실제 영향 자산을 판별할 때 사용합니다.",
+        "field_descriptions": {
+            "vpc_id": "수집 대상 VPC ID입니다.",
+            "region": "수집을 수행한 AWS 리전입니다.",
+            "collected_at": "수집 시각(UTC ISO-8601)입니다.",
+            "assets": "자동 탐색 모드에서 수집한 자산 목록입니다.",
+            "assets[].asset_id": "EC2 인스턴스 ID입니다. 자산을 식별하는 기본 키입니다.",
+            "assets[].hostname": "자산의 호스트명입니다.",
+            "assets[].tier": "web, app, db 등 계층 분류입니다.",
+            "assets[].availability_zone": "자산이 위치한 가용 영역입니다.",
+            "assets[].subnet_id": "자산이 속한 서브넷 ID입니다.",
+            "assets[].private_ip": "자산의 private IP입니다.",
+            "assets[].public_ip": "자산의 public IP입니다. 없으면 빈 문자열입니다.",
+            "assets[].security_groups": "자산에 연결된 security group ID 목록입니다.",
+            "assets[].iam_instance_profile": "자산에 연결된 IAM instance profile 이름입니다.",
+            "assets[].metadata": "자산의 환경/노출/라우팅 메타데이터입니다.",
+            "assets[].metadata.environment": "수집 시점에 지정한 환경 이름입니다. 예: production.",
+            "assets[].metadata.network_exposure": "서브넷 라우팅 기준 public/private/isolated 분류입니다.",
+            "assets[].metadata.subnet_route_type": "public, private_nat, isolated 등 서브넷의 인터넷 연결 유형입니다.",
+            "assets[].metadata.internet_route_via_igw": "인터넷 게이트웨이(IGW)를 통해 직접 인터넷 라우트가 있는지 여부입니다.",
+            "assets[].metadata.internet_egress_via_nat": "NAT Gateway를 통해 외부 outbound egress가 가능한지 여부입니다.",
+            "assets[].metadata.business_criticality": "업무 중요도 메타데이터입니다.",
+            "assets[].metadata.data_classification": "자산의 데이터 민감도 분류입니다.",
+            "assets[].network_context": "자산의 네트워크 컨텍스트입니다.",
+            "assets[].network_context.public_ip": "에이전트가 OS/네트워크 관점에서 확인한 public IP입니다.",
+            "assets[].network_context.listening_ports": "자산에서 수집된 listening port 목록입니다.",
+            "assets[].security_context": "자산의 보안 컨텍스트입니다.",
+            "assets[].security_context.attached_iam_role": "자산에 연결된 IAM role 이름입니다.",
+            "assets[].security_context.running_as_root": "root 권한으로 실행 중인 주요 프로세스 목록입니다.",
+            "assets[].security_context.imds_v2_enforced": "IMDSv2 강제 여부입니다.",
+            "assets[].security_context.selinux_enforced": "SELinux enforce 여부입니다.",
+            "assets[].os_info": "운영체제 벤더/버전 정보입니다.",
+            "assets[].installed_software": "탐지된 주요 소프트웨어 목록입니다. 취약점 매칭에 직접 사용됩니다.",
+            "assets[].installed_software[].vendor": "소프트웨어 벤더입니다.",
+            "assets[].installed_software[].product": "소프트웨어 제품명입니다.",
+            "assets[].installed_software[].version": "탐지된 정확한 버전입니다.",
+            "assets[].installed_software[].source_path": "버전/설치 근거를 찾은 경로입니다.",
+            "reachability": "계층 간 도달 가능성 정보입니다. source_tier, target_tier, ports를 통해 web/app/db 흐름을 설명합니다.",
+        },
+    }
 
 
 def _extract_ports(perm: dict) -> list:
@@ -580,8 +691,8 @@ def build_collect_system_prompt(payload: dict) -> str:
 
 {targets}
 
-payload 를 스스로 읽고, product_name(예: `nginx`, `apache-log4j`) 와 cpe_criteria 에서
-vendor/product 를 추출하세요. 이 인스턴스에 해당 소프트웨어가 있는지 **직접 판단** 하세요.
+payload 를 스스로 읽고, product_name(예: `nginx`, `apache-log4j`) 와 affected_version_range 를 참고해
+이 인스턴스에 해당 소프트웨어가 있는지 **직접 판단** 하세요.
 
 ## 행동 원칙 (자유도)
 
@@ -604,18 +715,16 @@ vendor/product 를 추출하세요. 이 인스턴스에 해당 소프트웨어�
 {{
   "installed_software": [
     {{
-      "vendor":      "<CPE vendor, 예: f5, apache>",
-      "product":     "<CPE product, 예: nginx, log4j>",
+      "vendor":      "<vendor, 예: f5, apache>",
+      "product":     "<product, 예: nginx, log4j>",
       "version":     "<실제 설치 버전, 예: 1.20.0, 2.14.1>",
-      "cpe":         "<CPE 2.3 식별자>",
       "source_path": "<탐지 근거 경로 (선택)>"
     }}
     // 대상 소프트웨어가 없으면 빈 배열 []
   ],
   "network_context": {{
     "public_ip":          "<IMDS /public-ipv4, 없으면 ''>",
-    "listening_ports":    [<LISTEN TCP 포트 번호 정수 배열>],
-    "is_internet_facing": <public_ip 가 존재하면 true>
+    "listening_ports":    [<LISTEN TCP 포트 번호 정수 배열>]
   }},
   "security_context": {{
     "attached_iam_role": "<EC2 instance profile 이름, 없으면 ''>",
@@ -663,7 +772,7 @@ def run_collect_agent(payload: dict,
     print(f"[AGENT] 수집 모드 시작 — 모델: {BEDROCK_MODEL_ID}, 실행: {exec_mode}")
 
     agent = Agent(
-        model=BEDROCK_MODEL_ID,
+        model=_build_bedrock_model(),
         system_prompt=system_prompt,
         tools=[run_command, read_file, save_result],
     )
@@ -704,9 +813,22 @@ EC2 에서 직접 추가 조사한 뒤 answer_query 를 호출해 답변하세�
 3. answer 는 간결한 한 줄, evidence 에는 근거 명령/파일, confidence 는 high/medium/low 중 하나.
 4. **answer_query 를 호출하지 않고 텍스트로만 종료하는 것은 절대 금지** — 종료 전 반드시 answer_query 를 정확히 한 번 호출해야 합니다. 확신이 부족하면 confidence='low' 로 두면 됩니다.
 5. answer_query 호출 후에는 추가 도구 호출 없이 짧은 종료 메시지를 텍스트로 응답해 종료하세요.
-6. 질의 응답 모드에는 조사 예산이 있습니다. 같은 명령/파일 재확인 금지, 도구 호출 상한과 시간 상한을 넘기면 더 파고들지 말고 현재까지의 증거로 답변하거나 확인 불가로 종료하세요.
-7. `[QUERY BUDGET EXCEEDED]` 또는 `[QUERY SKIP]` 응답을 받으면 추가 조사 대신 즉시 answer_query 를 호출하세요.
-"""
+6. `[QUERY BUDGET EXCEEDED]` 또는 `[QUERY SKIP]` 응답을 받으면 추가 조사 대신 즉시 answer_query 를 호출하세요.
+7. 추정으로 "yes" 또는 "활성"이라고 단정하지 마세요. 직접 확인한 파일, 명령 출력, 프로세스, 설정 근거가 없으면 unknown/확인 불가로 답하십시오.
+8. 추가 조사가 필요하면 asset_info.installed_software 를 먼저 보십시오. 이미 탐지된 product, version, source_path 가 있으면 일반적인 기본 경로 추정보다 그 경로와 인접한 바이너리/설정 파일을 우선 확인하십시오.
+9. 특정 기능의 활성 여부를 확인하는 질문을 받았을 때, 명시적인 활성화 설정 파일이나 옵션이 없다는 이유만으로 곧바로 `unknown`으로 답하지 마십시오.
+10. 관련 소프트웨어의 취약 버전이 실제로 존재하는지, 외부 입력이 해당 기능이 사용되는 코드나 설정 경로까지 도달하는지, 그리고 비활성화·제거·차단 근거가 있는지를 함께 확인하십시오.
+11. 즉, 단순히 "활성화 설정이 있나"만 보지 말고, 실제 취약 동작 가능성, 입력 도달성, 비활성화 근거 유무를 종합해서 답변하십시오.
+[실습 환경 조사 힌트]
+- 질문이 `CVE-2021-23017`, `nginx`, `resolver`, `DNS`, `upstream`, `proxy_pass` 관련이면 우선 다음 근거를 확인하세요.
+  - 이미 탐지된 `source_path` 또는 실제 실행 중인 nginx 바이너리 경로를 기준으로 설정과 실행 정보를 확인하세요.
+  - 설정 안의 `resolver` 지시어, `proxy_pass`, upstream 구성이 실제 사용되는지 확인하세요.
+  - DNS 이름 기반 upstream/proxy 경로가 실제 사용되는지 확인하세요.
+- 질문이 `CVE-2021-44228`, `log4j`, `JNDI`, `message lookup`, `formatMsgNoLookups`, `User-Agent` 관련이면 우선 다음 근거를 확인하세요.
+  - 이미 탐지된 `source_path`, Java 실행 인자, classpath, 관련 설정 파일과 애플리케이션 코드를 우선 확인하세요.
+  - message lookup, lookup(`${...}`) 해석, `${{jndi:...}}` 처리 가능 여부와 관련된 설정/코드 근거를 확인하세요.
+  - 외부 입력값이 실제 로그 호출까지 도달하는 코드/설정 경로를 확인하세요.
+  - JNDI lookup 이 실제로 발생하는지 간단한 로그 패턴으로 테스트해 볼 수도 있습니다."""
 
 
 def run_query_agent(asset_info: dict, query: str,
@@ -728,7 +850,7 @@ def run_query_agent(asset_info: dict, query: str,
     print(f"[AGENT] 질의 응답 모드 ({exec_mode}) — 질문: {query}")
 
     agent = Agent(
-        model=BEDROCK_MODEL_ID,
+        model=_build_bedrock_model(),
         system_prompt=system_prompt,
         tools=[run_command, read_file, answer_query],
     )
@@ -785,6 +907,7 @@ def collect_single_asset(
     )
 
     return {
+        "_meta": build_asset_result_meta("single_asset"),
         "asset_id": actual_id,
         "hostname": hostname,
         "metadata": {
@@ -794,7 +917,7 @@ def collect_single_asset(
             "data_classification": collected.get("data_classification", "unknown"),
         },
         "network_context": collected.get("network_context", {
-            "public_ip": "", "listening_ports": [], "is_internet_facing": False,
+            "public_ip": "", "listening_ports": [],
         }),
         "security_context": collected.get("security_context", {
             "attached_iam_role": "", "running_as_root": [],
@@ -822,7 +945,11 @@ def run_auto_discover(
     print(f"[DISCOVERY] {len(instances)}개 인스턴스 발견")
     for inst in instances:
         inst["tier"] = extract_tier(inst["tags"], inst["name"])
-        inst["network_exposure"] = classify_subnet(inst["subnet_id"], region)
+        connectivity = describe_subnet_connectivity(inst["subnet_id"], region)
+        inst["network_exposure"] = str(connectivity.get("network_exposure", "unknown"))
+        inst["subnet_route_type"] = str(connectivity.get("subnet_route_type", "unknown"))
+        inst["internet_route_via_igw"] = bool(connectivity.get("internet_route_via_igw", False))
+        inst["internet_egress_via_nat"] = bool(connectivity.get("internet_egress_via_nat", False))
         print(f"  - {inst['instance_id']} "
               f"name={inst['name'] or '-':<20} "
               f"tier={inst['tier']:<7} "
@@ -863,6 +990,9 @@ def run_auto_discover(
             "metadata": {
                 "environment": environment,
                 "network_exposure": inst["network_exposure"],
+                "subnet_route_type": inst["subnet_route_type"],
+                "internet_route_via_igw": inst["internet_route_via_igw"],
+                "internet_egress_via_nat": inst["internet_egress_via_nat"],
                 "business_criticality": business_criticality,
                 "data_classification": data_class,
             },
@@ -873,6 +1003,7 @@ def run_auto_discover(
         })
 
     return {
+        "_meta": build_asset_result_meta("infra_context"),
         "vpc_id": vpc_id,
         "region": region,
         "collected_at": datetime.now(timezone.utc).isoformat(),
@@ -887,7 +1018,7 @@ def run_auto_discover(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Bedrock(Claude) AI Agent 기반 자산 매칭 에이전트 (수집·질의 이중 모드)."
+        description="AgentCore 기반 자산 매칭 에이전트 (GPT-5.5, 수집·질의 이중 모드)."
     )
     parser.add_argument("--payload", default=None, help="[수집 모드] payload.json 경로")
     parser.add_argument("--query",   default=None, help="[질의 응답 모드] 다른 Agent가 보낸 질문 텍스트")
