@@ -5,6 +5,18 @@ import requests
 import os
 import urllib3
 
+def _first_env_value(*keys: str) -> str:
+    for key in keys:
+        value = str(os.environ.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+SLACK_WEBHOOK_URL = _first_env_value("PATCH_EXEC_SLACK_WEBHOOK_URL", "SLACK_WEBHOOK_URL")
+SLACK_BOT_TOKEN = _first_env_value("PATCH_EXEC_SLACK_BOT_TOKEN", "SLACK_BOT_TOKEN")
+SLACK_CHANNEL_ID = _first_env_value("PATCH_EXEC_SLACK_CHANNEL_ID", "SLACK_CHANNEL_ID")
+
 ssm_client = boto3.client('ssm', region_name='ap-northeast-2')
 
 def run_ssm_and_wait(instance_id: str, commands: list[str]) -> str:
@@ -49,9 +61,10 @@ def send_progress_message(message: str) -> str:
     Args:
         message (str): 슬랙에 보낼 텍스트 (예: '🚀 1번째 서버 패치를 시작합니다...', '✅ 정상 가동 확인')
     """
-    slack_webhook_url = "https://hooks.slack.com/services/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"
+    if not SLACK_WEBHOOK_URL:
+        return "SKIPPED"
     try:
-        requests.post(slack_webhook_url, json={"text": message})
+        requests.post(SLACK_WEBHOOK_URL, json={"text": message}, timeout=5)
         return "SUCCESS"
     except Exception as e:
         return f"WEBHOOK_ERROR: {str(e)}"
@@ -61,9 +74,11 @@ def send_slack_notification(message_type: str, plan_data: dict = None, summary_m
     print(f"--- [DEBUG] 슬랙 발송 시작: {message_type} ---")
     
     # 1. 환경 설정
-    slack_bot_token = "xoxb-10122507779588-11055904484097-q1fEC2DbNXJgU05WVNWBtrTM"
-    channel_id = "C0B0XQFG42F"
+    slack_bot_token = SLACK_BOT_TOKEN
+    channel_id = SLACK_CHANNEL_ID
     slack_api_url = "https://slack.com/api/chat.postMessage"
+    if not slack_bot_token or not channel_id:
+        return "SKIPPED"
 
     # 2. 에이전트가 보낸 데이터 처리 (문자열인 경우 JSON 파싱)
     if isinstance(plan_data, str):
