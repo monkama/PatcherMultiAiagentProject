@@ -1,0 +1,31 @@
+==================================================
+Policy ARN: arn:aws:iam::842337469411:policy/CloudFormation-role-43263685Policy
+==================================================
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "Ec2ForLabStack",
+            "Effect": "Allow",
+            "Action": "ec2:*",
+            "Resource": "*"
+        },
+        {
+            "Sid": "ReadPublicAmiFromSsm",
+            "Effect": "Allow",
+            "Action": [
+                "ssm:GetParameter",
+                "ssm:GetParameters"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "iam",
+            "Effect": "Allow",
+            "Action": [
+                "iam:*"
+            ],
+            "Resource": "*"
+        }
+    ]
+}
