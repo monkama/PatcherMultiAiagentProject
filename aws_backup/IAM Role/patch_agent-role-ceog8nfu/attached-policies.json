@@ -1,0 +1,34 @@
+==================================================
+Policy ARN: arn:aws:iam::842337469411:policy/service-role/AWSLambdaBasicExecutionRole-0627d6a5-735c-498a-8f2d-85adcb614dee
+==================================================
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "AllowLambdaLogging",
+            "Effect": "Allow",
+            "Action": "logs:CreateLogGroup",
+            "Resource": "arn:aws:logs:ap-northeast-2:842337469411:*"
+        },
+        {
+            "Sid": "AllowLogStreams",
+            "Effect": "Allow",
+            "Action": [
+                "logs:CreateLogStream",
+                "logs:PutLogEvents"
+            ],
+            "Resource": [
+                "arn:aws:logs:ap-northeast-2:842337469411:log-group:/aws/lambda/patch_agent:*"
+            ]
+        },
+        {
+            "Sid": "AllowInvokeAgentCore",
+            "Effect": "Allow",
+            "Action": "bedrock-agentcore:InvokeAgentRuntime",
+            "Resource": [
+                "arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/patch_exec_agent-gX4MoR2Lnj*",
+                "arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/patch_impact_container-xZZJBa7PNA*"
+            ]
+        }
+    ]
+}
