@@ -1,0 +1,53 @@
+==================================================
+Inline Policy Name: OrchestratorAgentCorePolicy
+==================================================
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "InvokeAgents",
+            "Effect": "Allow",
+            "Action": [
+                "bedrock-agentcore:InvokeAgentRuntime"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "DiscoverVPC",
+            "Effect": "Allow",
+            "Action": [
+                "ec2:DescribeVpcs"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "Logs",
+            "Effect": "Allow",
+            "Action": [
+                "logs:CreateLogGroup",
+                "logs:CreateLogStream",
+                "logs:PutLogEvents"
+            ],
+            "Resource": "arn:aws:logs:*:842337469411:*"
+        }
+    ]
+}
+==================================================
+Inline Policy Name: OrchestratorInvokeChildRuntimes
+==================================================
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "AllowInvokeChildAgentCoreRuntimes",
+            "Effect": "Allow",
+            "Action": [
+                "bedrock-agentcore:InvokeAgentRuntime"
+            ],
+            "Resource": [
+                "arn:aws:bedrock-agentcore:ap-northeast-2:*:runtime/*",
+                "arn:aws:bedrock-agentcore:ap-northeast-2:*:runtime/*/runtime-endpoint/DEFAULT"
+            ]
+        }
+    ]
+}
