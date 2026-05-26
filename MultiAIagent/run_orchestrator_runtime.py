@@ -42,6 +42,8 @@ ORCHESTRATOR_RUNTIME_ARN_ENV_KEYS = (
 PATCH_IMPACT_RUNTIME_ARN_ENV_KEYS = (
     "PATCH_IMPACT_AGENTCORE_ARN",
     "PATCH_IMPACT_ARN",
+    "PATCH_STRATEGY_AGENTCORE_ARN",
+    "PATCH_STRATEGY_ARN",
 )
 INFRA_MATCHING_RUNTIME_ARN_ENV_KEYS = (
     "INFRA_MATCHING_AGENTCORE_ARN",
@@ -51,6 +53,8 @@ INFRA_MATCHING_RUNTIME_ARN_ENV_KEYS = (
 PATCH_EXECUTION_RUNTIME_ARN_ENV_KEYS = (
     "PATCH_EXECUTION_AGENTCORE_ARN",
     "PATCH_EXECUTION_ARN",
+    "PATCH_EXEC_AGENTCORE_ARN",
+    "PATCH_EXEC_ARN",
 )
 DEFAULT_ORCHESTRATOR_ARN = ""
 DEFAULT_PATCH_IMPACT_ARN = ""
@@ -125,7 +129,7 @@ def _print_usage_guide() -> None:
         "   위험 평가 에이전트만 실행\n"
         "   필요 입력: infra_context.json, risk_assessment_payloads.json\n"
         "5. patch_only\n"
-        "   패치 영향도 에이전트만 실행\n"
+        "   패치 전략 에이전트만 실행\n"
         "   필요 입력: infra_context.json, risk_evaluation_result.json, operational_impact_payloads.json\n"
         "   runtime ARN은 .env 에 설정하거나 실행 시 직접 입력하면 됩니다.\n"
         "   patch는 현재 Amazon Bedrock 기반이며, 관련 runtime에는 Bedrock 모델 접근 권한과 필요한 환경변수가 설정돼 있어야 합니다.\n"
@@ -389,10 +393,10 @@ def _build_payload_interactively() -> tuple[dict[str, Any], str]:
         payload["infra_context"] = _prompt_json_file("infra_context", "infra_context", required=True)
         payload["risk_assessment_payload"] = _prompt_json_file("risk_assessment_payload", "risk_assessment_payload", required=True)
     elif mode == "patch_only":
-        patch_runtime_arn = _prompt_optional_runtime_arn("Patch runtime ARN", os.environ.get("PATCH_IMPACT_ARN") or DEFAULT_PATCH_IMPACT_ARN)
+        patch_runtime_arn = _prompt_optional_runtime_arn("Patch Strategy runtime ARN", os.environ.get("PATCH_IMPACT_ARN") or DEFAULT_PATCH_IMPACT_ARN)
         payload["patch_impact_runtime_arn"] = _require_runtime_arn(
             patch_runtime_arn,
-            "Patch runtime ARN",
+            "Patch Strategy runtime ARN",
             PATCH_IMPACT_RUNTIME_ARN_ENV_KEYS,
         )
         infra_matching_runtime_arn = _prompt_optional_runtime_arn(
@@ -436,10 +440,10 @@ def _build_payload_interactively() -> tuple[dict[str, Any], str]:
             )
 
         if stop_stage == "patch":
-            patch_runtime_arn = _prompt_optional_runtime_arn("Patch runtime ARN", os.environ.get("PATCH_IMPACT_ARN") or DEFAULT_PATCH_IMPACT_ARN)
+            patch_runtime_arn = _prompt_optional_runtime_arn("Patch Strategy runtime ARN", os.environ.get("PATCH_IMPACT_ARN") or DEFAULT_PATCH_IMPACT_ARN)
             payload["patch_impact_runtime_arn"] = _require_runtime_arn(
                 patch_runtime_arn,
-                "Patch runtime ARN",
+                "Patch Strategy runtime ARN",
                 PATCH_IMPACT_RUNTIME_ARN_ENV_KEYS,
             )
             infra_matching_runtime_arn = _prompt_optional_runtime_arn(

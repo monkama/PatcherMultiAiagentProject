@@ -27,6 +27,26 @@ vuln_collector -> asset_matching -> risk_evaluation -> patch_impact -> patch_exe
 
 현재 오케스트라는 이 단계를 순서대로 이어주는 얇은 실행 허브입니다.
 
+## 실행 환경과 모델 정책
+
+현재 로컬 실행과 배포 스크립트가 기본으로 참조하는 환경변수 파일은 아래 하나입니다.
+
+- [\.env](/Users/jms/Desktop/project/PacherAgents/.env)
+
+즉 `MultiAIagent/` 내부 별도 `.env`를 두는 전제가 아니라, **프로젝트 루트 `.env`**를 기준으로 맞추는 것이 현재 기준입니다.
+
+최소한 아래 값들은 루트 `.env`에 있어야 합니다.
+
+- `OPENCVE_API_KEY`
+- `AWS_ACCESS_KEY_ID`
+- `AWS_SECRET_ACCESS_KEY`
+- `AWS_DEFAULT_REGION`
+- 각 AgentCore runtime ARN 관련 변수
+
+중요:
+
+- 현재 멀티 에이전트 실습 경로는 **Amazon Bedrock 기반**으로 맞춰져 있습니다.
+
 ## 개념 파이프라인 예시
 
 사용자 호출을 아주 단순화해서 보면 아래처럼 이해할 수 있습니다.
