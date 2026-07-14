@@ -3,10 +3,10 @@ bedrock_agentcore:
   agent_arn: null
   agent_name: vuln_collector_agent
   entrypoint: runtime_app.py
-  execution_role: arn:aws:iam::842337469411:role/service-role/AmazonBedrockAgentCoreRuntimeDefaultServiceRole-k0y7q
+  execution_role: "arn:aws:iam::<AWS_ACCOUNT_ID>:role/service-role/<EXECUTION_ROLE_NAME>"
   platform: linux/arm64
   runtime_type: PYTHON_3_13
-  s3_path: s3://bedrock-agentcore-codebuild-sources-842337469411-ap-northeast-2
+  s3_path: "s3://<SOURCE_BUCKET_NAME>"
   network_mode: PUBLIC
 
 codebuild:

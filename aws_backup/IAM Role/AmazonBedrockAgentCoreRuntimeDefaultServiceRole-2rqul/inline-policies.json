@@ -30,6 +30,7 @@ Inline Policy Name: AgentCoreBedrockConverseMarketplace
         }
     ]
 }
+
 ==================================================
 Inline Policy Name: AllowSSMPatchExecution
 ==================================================
@@ -43,7 +44,7 @@ Inline Policy Name: AllowSSMPatchExecution
                 "ssm:SendCommand"
             ],
             "Resource": [
-                "arn:aws:ec2:ap-northeast-2:842337469411:instance/*",
+                "arn:aws:ec2:ap-northeast-2:<AWS_ACCOUNT_ID>:instance/*",
                 "arn:aws:ssm:ap-northeast-2:*:document/AWS-RunShellScript"
             ]
         },
@@ -58,6 +59,7 @@ Inline Policy Name: AllowSSMPatchExecution
         }
     ]
 }
+
 ==================================================
 Inline Policy Name: PatchImpactEcrPull
 ==================================================
@@ -80,10 +82,11 @@ Inline Policy Name: PatchImpactEcrPull
                 "ecr:BatchGetImage",
                 "ecr:GetDownloadUrlForLayer"
             ],
-            "Resource": "arn:aws:ecr:ap-northeast-2:*:repository/patch-impact-agent"
+            "Resource": "arn:aws:ecr:ap-northeast-2:*:repository/<ECR_REPOSITORY_NAME>"
         }
     ]
 }
+
 ==================================================
 Inline Policy Name: PatchImpactInvokeAssetRuntime
 ==================================================
