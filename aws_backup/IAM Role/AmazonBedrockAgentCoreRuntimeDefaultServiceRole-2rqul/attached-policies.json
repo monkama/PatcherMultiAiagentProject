@@ -1,5 +1,5 @@
 ==================================================
-Policy ARN: arn:aws:iam::842337469411:policy/service-role/AmazonBedrockAgentCoreRuntimeExecutionPolicy_22grc
+Policy ARN: arn:aws:iam::<AWS_ACCOUNT_ID>:policy/service-role/<POLICY_NAME>
 ==================================================
 {
     "Version": "2012-10-17",
@@ -11,7 +11,7 @@ Policy ARN: arn:aws:iam::842337469411:policy/service-role/AmazonBedrockAgentCore
                 "logs:CreateLogGroup"
             ],
             "Resource": [
-                "arn:aws:logs:ap-northeast-2:842337469411:log-group:/aws/bedrock-agentcore/runtimes/*"
+                "arn:aws:logs:ap-northeast-2:<AWS_ACCOUNT_ID>:log-group:/aws/bedrock-agentcore/runtimes/*"
             ]
         },
         {
@@ -20,7 +20,7 @@ Policy ARN: arn:aws:iam::842337469411:policy/service-role/AmazonBedrockAgentCore
                 "logs:DescribeLogGroups"
             ],
             "Resource": [
-                "arn:aws:logs:ap-northeast-2:842337469411:log-group:*"
+                "arn:aws:logs:ap-northeast-2:<AWS_ACCOUNT_ID>:log-group:*"
             ]
         },
         {
@@ -30,7 +30,7 @@ Policy ARN: arn:aws:iam::842337469411:policy/service-role/AmazonBedrockAgentCore
                 "logs:PutLogEvents"
             ],
             "Resource": [
-                "arn:aws:logs:ap-northeast-2:842337469411:log-group:/aws/bedrock-agentcore/runtimes/*:log-stream:*"
+                "arn:aws:logs:ap-northeast-2:<AWS_ACCOUNT_ID>:log-group:/aws/bedrock-agentcore/runtimes/*:log-stream:*"
             ]
         },
         {
@@ -64,7 +64,7 @@ Policy ARN: arn:aws:iam::842337469411:policy/service-role/AmazonBedrockAgentCore
             ],
             "Resource": [
                 "arn:aws:bedrock:*::foundation-model/*",
-                "arn:aws:bedrock:ap-northeast-2:842337469411:*"
+                "arn:aws:bedrock:ap-northeast-2:<AWS_ACCOUNT_ID>:*"
             ]
         },
         {
@@ -74,10 +74,10 @@ Policy ARN: arn:aws:iam::842337469411:policy/service-role/AmazonBedrockAgentCore
                 "elasticfilesystem:ClientMount",
                 "elasticfilesystem:ClientWrite"
             ],
-            "Resource": "arn:aws:elasticfilesystem:ap-northeast-2:842337469411:file-system/*",
+            "Resource": "arn:aws:elasticfilesystem:ap-northeast-2:<AWS_ACCOUNT_ID>:file-system/*",
             "Condition": {
                 "ArnLike": {
-                    "elasticfilesystem:AccessPointArn": "arn:aws:elasticfilesystem:ap-northeast-2:842337469411:access-point/*"
+                    "elasticfilesystem:AccessPointArn": "arn:aws:elasticfilesystem:ap-northeast-2:<AWS_ACCOUNT_ID>:access-point/*"
                 }
             }
         },
@@ -89,8 +89,8 @@ Policy ARN: arn:aws:iam::842337469411:policy/service-role/AmazonBedrockAgentCore
                 "elasticfilesystem:DescribeMountTargets"
             ],
             "Resource": [
-                "arn:aws:elasticfilesystem:ap-northeast-2:842337469411:file-system/*",
-                "arn:aws:elasticfilesystem:ap-northeast-2:842337469411:access-point/*"
+                "arn:aws:elasticfilesystem:ap-northeast-2:<AWS_ACCOUNT_ID>:file-system/*",
+                "arn:aws:elasticfilesystem:ap-northeast-2:<AWS_ACCOUNT_ID>:access-point/*"
             ]
         },
         {
@@ -101,10 +101,10 @@ Policy ARN: arn:aws:iam::842337469411:policy/service-role/AmazonBedrockAgentCore
                 "s3files:ClientWrite",
                 "s3files:ClientRootAccess"
             ],
-            "Resource": "arn:aws:s3files:ap-northeast-2:842337469411:file-system/*",
+            "Resource": "arn:aws:s3files:ap-northeast-2:<AWS_ACCOUNT_ID>:file-system/*",
             "Condition": {
                 "ArnLike": {
-                    "s3files:AccessPointArn": "arn:aws:s3files:ap-northeast-2:842337469411:file-system/*/access-point/*"
+                    "s3files:AccessPointArn": "arn:aws:s3files:ap-northeast-2:<AWS_ACCOUNT_ID>:file-system/*/access-point/*"
                 }
             }
         },
@@ -116,8 +116,8 @@ Policy ARN: arn:aws:iam::842337469411:policy/service-role/AmazonBedrockAgentCore
                 "s3files:ListMountTargets"
             ],
             "Resource": [
-                "arn:aws:s3files:ap-northeast-2:842337469411:file-system/*",
-                "arn:aws:s3files:ap-northeast-2:842337469411:file-system/*/access-point/*"
+                "arn:aws:s3files:ap-northeast-2:<AWS_ACCOUNT_ID>:file-system/*",
+                "arn:aws:s3files:ap-northeast-2:<AWS_ACCOUNT_ID>:file-system/*/access-point/*"
             ]
         }
     ]

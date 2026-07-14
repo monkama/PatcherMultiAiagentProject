@@ -28,10 +28,11 @@ Inline Policy Name: OrchestratorAgentCorePolicy
                 "logs:CreateLogStream",
                 "logs:PutLogEvents"
             ],
-            "Resource": "arn:aws:logs:*:842337469411:*"
+            "Resource": "arn:aws:logs:*:<AWS_ACCOUNT_ID>:*"
         }
     ]
 }
+
 ==================================================
 Inline Policy Name: OrchestratorInvokeChildRuntimes
 ==================================================

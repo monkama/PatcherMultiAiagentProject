@@ -11,13 +11,13 @@ agents:
     container_runtime: null
     source_path: null
     aws:
-      execution_role: arn:aws:iam::842337469411:role/AssetMatchingAgentCoreRole
+      execution_role: "arn:aws:iam::<AWS_ACCOUNT_ID>:role/<EXECUTION_ROLE_NAME>"
       execution_role_auto_create: false
-      account: '842337469411'
+      account: "<AWS_ACCOUNT_ID>"
       region: ap-northeast-2
       ecr_repository: null
       ecr_auto_create: false
-      s3_path: s3://bedrock-agentcore-codebuild-sources-842337469411-ap-northeast-2
+      s3_path: "s3://<SOURCE_BUCKET_NAME>"
       s3_auto_create: false
       network_configuration:
         network_mode: PUBLIC

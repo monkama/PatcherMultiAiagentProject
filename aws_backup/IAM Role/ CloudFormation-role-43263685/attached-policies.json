@@ -1,5 +1,5 @@
 ==================================================
-Policy ARN: arn:aws:iam::842337469411:policy/CloudFormation-role-43263685Policy
+Policy ARN: arn:aws:iam::<AWS_ACCOUNT_ID>:policy/<POLICY_NAME>
 ==================================================
 {
     "Version": "2012-10-17",

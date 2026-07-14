@@ -1,5 +1,5 @@
 ==================================================
-Policy ARN: arn:aws:iam::842337469411:policy/service-role/AWSLambdaBasicExecutionRole-0627d6a5-735c-498a-8f2d-85adcb614dee
+Policy ARN: arn:aws:iam::<AWS_ACCOUNT_ID>:policy/service-role/<LAMBDA_EXECUTION_POLICY_NAME>
 ==================================================
 {
     "Version": "2012-10-17",
@@ -8,7 +8,7 @@ Policy ARN: arn:aws:iam::842337469411:policy/service-role/AWSLambdaBasicExecutio
             "Sid": "AllowLambdaLogging",
             "Effect": "Allow",
             "Action": "logs:CreateLogGroup",
-            "Resource": "arn:aws:logs:ap-northeast-2:842337469411:*"
+            "Resource": "arn:aws:logs:<AWS_REGION>:<AWS_ACCOUNT_ID>:*"
         },
         {
             "Sid": "AllowLogStreams",
@@ -18,7 +18,7 @@ Policy ARN: arn:aws:iam::842337469411:policy/service-role/AWSLambdaBasicExecutio
                 "logs:PutLogEvents"
             ],
             "Resource": [
-                "arn:aws:logs:ap-northeast-2:842337469411:log-group:/aws/lambda/patch_agent:*"
+                "arn:aws:logs:<AWS_REGION>:<AWS_ACCOUNT_ID>:log-group:/aws/lambda/<LAMBDA_FUNCTION_NAME>:*"
             ]
         },
         {
@@ -26,8 +26,8 @@ Policy ARN: arn:aws:iam::842337469411:policy/service-role/AWSLambdaBasicExecutio
             "Effect": "Allow",
             "Action": "bedrock-agentcore:InvokeAgentRuntime",
             "Resource": [
-                "arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/patch_exec_agent-gX4MoR2Lnj*",
-                "arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/patch_impact_container-xZZJBa7PNA*"
+                "arn:aws:bedrock-agentcore:<AWS_REGION>:<AWS_ACCOUNT_ID>:runtime/<PATCH_EXEC_AGENT_ID>*",
+                "arn:aws:bedrock-agentcore:<AWS_REGION>:<AWS_ACCOUNT_ID>:runtime/<PATCH_IMPACT_AGENT_ID>*"
             ]
         }
     ]
