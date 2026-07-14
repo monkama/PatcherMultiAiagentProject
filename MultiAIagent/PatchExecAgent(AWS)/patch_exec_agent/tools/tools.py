@@ -94,8 +94,8 @@ def send_slack_notification(message_type: str, plan_data: dict = None, summary_m
                 "cve_id": cve,
                 "product": "수동 분석 대상" if "44228" in cve else "Nginx (자동)",
                 "patch_method_ko": "취약점 조치 가이드에 따른 패치 적용",
-                "auto_patch_instances": ["i-007c41717dc128801", "i-0f08f67d18384cea0"] if "23017" in cve else [],
-                "manual_approval_instances": ["i-0f8947a8a7e1ad148", "i-0315c19a9d851fa29"] if "44228" in cve else [],
+                "auto_patch_instances": ["실제 인스턴스 ID", "실제 인스턴스 ID"] if "23017" in cve else [],
+                "manual_approval_instances": ["실제 인스턴스 ID", "실제 인스턴스 ID"] if "44228" in cve else [],
                 "manual_reason": "핵심 로깅 라이브러리이므로 영향도 확인 필요"
             } for cve in plan_data.get("cve_list", [])
         ]

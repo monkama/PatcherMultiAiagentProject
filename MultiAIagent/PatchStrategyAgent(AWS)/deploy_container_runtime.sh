@@ -73,7 +73,8 @@ usage() {
 
 예시:
   ./deploy_container_runtime.sh create
-  ./deploy_container_runtime.sh update --runtime-arn arn:aws:bedrock-agentcore:ap-northeast-2:430155298344:runtime/patch_strategy_agent-2Zl5H0Gf4T
+  ./deploy_container_runtime.sh update \
+  --runtime-arn "arn:aws:bedrock-agentcore:<AWS_REGION>:<AWS_ACCOUNT_ID>:runtime/<PATCH_STRATEGY_AGENT_ID>"
 EOF
 }
 
