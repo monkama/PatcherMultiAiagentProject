@@ -2,7 +2,7 @@
 
 취약점 수집 에이전트는 파이프라인의 첫 단계에서 `CVE ID`를 받아, 이후 에이전트들이 바로 사용할 수 있는 형태로 취약점 정보를 정리하는 역할을 합니다.
 
-![취약점 수집 에이전트](../../image/vuln-collector-agent.png)
+![취약점 수집 에이전트](../../image/VulnCollectorAgent.png)
 
 ## 역할
 
