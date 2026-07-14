@@ -1,6 +1,0 @@
-{
-  "statusCode": 200,
-  "runtimeSessionId": "orchestrator-run-9ca077b8460c4370a825f958ef16edaf",
-  "agentRuntimeArn": "arn:aws:bedrock-agentcore:ap-northeast-2:842337469411:runtime/orchestrator_agent-dcBXyy9q9h",
-  "region": "ap-northeast-2"
-}

