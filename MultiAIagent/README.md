@@ -1,6 +1,6 @@
 # PatcherAgents
 
-![PatcherAgents 전체 구조도](../../image/PatcherAgentsOverallStructure.png)
+![PatcherAgents 전체 구조도](../image/PatcherAgentsOverallStructure.png)
 
 AWS Bedrock AgentCore 위에서 여러 보안 에이전트를 연결해, 취약점 수집부터 자산 조사, 위험도 평가, 패치 전략 판단, 최종 패치 실행까지 이어지는 멀티 에이전트 파이프라인입니다.
 
