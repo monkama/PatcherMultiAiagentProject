@@ -65,7 +65,7 @@ PatcherAgents는 이 과정을 역할별 AI 에이전트로 분리하여, 각 �
 
 ## 전체 시스템 아키텍처
 
-![PatcherAgents 전체 구조도](../image/OverallStructure.png)
+![PatcherAgents 전체 구조도](image/OverallStructure.png)
 
 ### 데이터 전달 관계
 
